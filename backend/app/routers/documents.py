@@ -11,17 +11,9 @@ from app.models.setting import Setting
 from app.schemas.common import ApiResponse
 from app.schemas.document import DocumentOut
 from app.services.ingestion.pipeline import ingest_document
-from app.services.deepseek import DeepSeekClient
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
-
-def _get_deepseek_client(db: Session):
-    setting = db.query(Setting).filter(Setting.key == "api_key").first()
-    api_key = setting.value if setting else ""
-    if not api_key:
-        return None
-    return DeepSeekClient(api_key=api_key)
 
 def _process_one(file: UploadFile, db: Session):
     suffix = Path(file.filename or "").suffix.lower()
@@ -33,8 +25,7 @@ def _process_one(file: UploadFile, db: Session):
             shutil.copyfileobj(file.file, f)
     except Exception:
         raise Exception("文件保存失败")
-    client = _get_deepseek_client(db)
-    doc = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."), client)
+    doc = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."))
     return DocumentOut.model_validate(doc).model_dump()
 
 @router.post("/upload", response_model=ApiResponse)

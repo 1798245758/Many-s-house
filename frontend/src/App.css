@@ -1,6 +1,6 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-.answer-text { font-size: 1.05rem; line-height: 1.85; white-space: pre-wrap; margin: 12px 0; word-break: break-word; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif; }
+.answer-text { font-size: 1.05rem; line-height: 1.85; white-space: pre-wrap; margin: 12px 0; word-break: break-word; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
 body.dark { background: #1a1a2e; color: #e0e0e0; }
 body.dark .navbar { background: #16213e; border-bottom: 1px solid #0f3460; }
 body.dark .card { background: #16213e; border: 1px solid #0f3460; }

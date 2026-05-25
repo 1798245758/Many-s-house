@@ -1,10 +1,5 @@
-import struct
-from app.services.deepseek import DeepSeekClient
+from app.services.embedding import embed_text
 
-def vectorize_chunks(texts: list[str], client: DeepSeekClient) -> list[bytes]:
-    result = []
-    for text in texts:
-        vec = client.embed(text)
-        buf = struct.pack(f"{len(vec)}f", *vec)
-        result.append(buf)
-    return result
+
+def vectorize_chunks(texts: list[str], client=None) -> list[bytes]:
+    return [embed_text(t) for t in texts]

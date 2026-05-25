@@ -1,10 +1,18 @@
+import struct
 from sqlalchemy.orm import Session
 from app.services.deepseek import DeepSeekClient
 from app.services.retrieval.searcher import hybrid_search
+from app.services.embedding import embed_text, EMBEDDING_DIM
 from app.schemas.query import SourceInfo, QueryResponse
 
+
+def embed_query(text: str) -> list[float]:
+    packed = embed_text(text)
+    return list(struct.unpack(f"{EMBEDDING_DIM}f", packed))
+
+
 def generate_answer(db: Session, query_text: str, client: DeepSeekClient) -> QueryResponse:
-    query_vec = client.embed(query_text)
+    query_vec = embed_query(query_text)
     chunks = hybrid_search(db, query_vec, query_text, top_k=10)
     if not chunks:
         return QueryResponse(answer="当前知识库中没有相关信息，请先上传文档。", sources=[])

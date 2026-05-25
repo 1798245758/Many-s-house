@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.database import Base, get_engine
 from app.config import init_dirs
+from app.routers import documents, query, history, profile
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,3 +33,8 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"code": "SERVER_ERROR", "message": "服务器内部错误"},
     )
+
+app.include_router(documents.router)
+app.include_router(query.router)
+app.include_router(history.router)
+app.include_router(profile.router)

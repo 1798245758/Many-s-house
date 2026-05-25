@@ -42,7 +42,7 @@ export default function Documents() {
       <div style={{marginBottom:20}}>
         <label className="btn btn-primary" style={{cursor:'pointer'}}>
           {uploading ? '上传中...' : '上传文档'}
-          <input type="file" accept=".pdf,.txt,.md" onChange={handleUpload} hidden disabled={uploading} />
+          <input type="file" accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.bmp" onChange={handleUpload} hidden disabled={uploading} />
         </label>
       </div>
       {error && <ErrorMessage message={error} />}

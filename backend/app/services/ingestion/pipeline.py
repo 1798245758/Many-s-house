@@ -3,10 +3,8 @@ from sqlalchemy.orm import Session
 from app.models.document import Document
 from app.services.deepseek import DeepSeekClient
 from app.services.ingestion.extractor import extract_text
-from app.services.ingestion.cleaner import clean_text
-from app.services.ingestion.chunker import semantic_chunk
-from app.services.ingestion.embedder import vectorize_chunks
-from app.services.ingestion.indexer import save_chunks
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 def ingest_document(db: Session, file_path: Path, filename: str, file_type: str, deepseek_client: DeepSeekClient):
     doc = Document(filename=filename, file_type=file_type, file_size=file_path.stat().st_size, status="processing")
@@ -14,7 +12,10 @@ def ingest_document(db: Session, file_path: Path, filename: str, file_type: str,
     db.commit()
     db.refresh(doc)
     try:
-        raw_text = extract_text(file_path)
+        if file_type in IMAGE_EXTENSIONS:
+            raw_text = deepseek_client.describe_image(str(file_path))
+        else:
+            raw_text = extract_text(file_path)
         cleaned = clean_text(raw_text)
         chunks = semantic_chunk(cleaned)
         embeddings = vectorize_chunks(chunks, deepseek_client)

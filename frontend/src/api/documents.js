@@ -10,4 +10,9 @@ export function uploadDocument(fileList) {
   }
   return uploadFile('/api/documents/upload', fd)
 }
+export function replaceDocument(id, file) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return uploadFile(`/api/documents/${id}`, fd, 'PUT')
+}
 export function deleteDocument(id) { return del(`/api/documents/${id}`) }

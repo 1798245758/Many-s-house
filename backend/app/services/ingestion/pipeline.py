@@ -13,11 +13,20 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 def _is_image(file_type: str) -> bool:
     return f".{file_type}" in IMAGE_EXTENSIONS
 
-def ingest_document(db: Session, file_path: Path, filename: str, file_type: str, deepseek_client=None):
-    doc = Document(filename=filename, file_type=file_type, file_size=file_path.stat().st_size, status="processing")
-    db.add(doc)
-    db.commit()
-    db.refresh(doc)
+def ingest_document(db: Session, file_path: Path, filename: str, file_type: str, deepseek_client=None, doc_id: int = None):
+    if doc_id:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        doc.filename = filename
+        doc.file_type = file_type
+        doc.file_size = file_path.stat().st_size
+        doc.status = "processing"
+        doc.chunk_count = 0
+        db.commit()
+    else:
+        doc = Document(filename=filename, file_type=file_type, file_size=file_path.stat().st_size, status="processing")
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
     try:
         if _is_image(file_type):
             raw_text = f"[图片文件: {filename}]  (可上传 XMind 等思维导图导出图片，系统已保存)"

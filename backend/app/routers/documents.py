@@ -36,8 +36,10 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
         doc = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."), client)
     except ValueError as e:
         return ApiResponse(code="PARAM_ERROR", message=str(e))
-    except Exception:
-        return ApiResponse(code="DOC_PROCESS_ERROR", message="文档处理失败")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return ApiResponse(code="DOC_PROCESS_ERROR", message=str(e))
     data = DocumentOut.model_validate(doc).model_dump()
     return ApiResponse(code="SUCCESS", message="文档上传并处理成功", data=data)
 

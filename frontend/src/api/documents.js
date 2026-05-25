@@ -1,5 +1,8 @@
 import { get, del, uploadFile } from './index'
-export function getDocuments() { return get('/api/documents') }
+export function getDocuments(page = 1, pageSize = 10, search = '') {
+  const params = new URLSearchParams({ page, page_size: pageSize, search })
+  return get(`/api/documents?${params}`)
+}
 export function uploadDocument(fileList) {
   const fd = new FormData()
   for (const file of fileList) {

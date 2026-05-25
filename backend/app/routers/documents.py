@@ -1,7 +1,7 @@
 import shutil
 from pathlib import Path
 from typing import List
-from fastapi import APIRouter, UploadFile, File, Depends
+from fastapi import APIRouter, UploadFile, File, Depends, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.config import UPLOAD_DIR
@@ -49,9 +49,23 @@ def upload_documents(files: List[UploadFile] = File(...), db: Session = Depends(
     )
 
 @router.get("", response_model=ApiResponse)
-def list_documents(db: Session = Depends(get_db)):
-    docs = db.query(Document).order_by(Document.created_at.desc()).all()
-    return ApiResponse(data=[DocumentOut.model_validate(d).model_dump() for d in docs])
+def list_documents(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    search: str = Query(""),
+    db: Session = Depends(get_db),
+):
+    query = db.query(Document)
+    if search:
+        query = query.filter(Document.filename.contains(search))
+    total = query.count()
+    docs = query.order_by(Document.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return ApiResponse(data={
+        "items": [DocumentOut.model_validate(d).model_dump() for d in docs],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    })
 
 @router.delete("/{doc_id}", response_model=ApiResponse)
 def delete_document(doc_id: int, db: Session = Depends(get_db)):

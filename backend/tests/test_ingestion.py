@@ -3,6 +3,20 @@ from pathlib import Path
 from app.services.ingestion.extractor import extract_text
 from app.services.ingestion.cleaner import clean_text
 from app.services.ingestion.chunker import semantic_chunk
+from app.services.ingestion.pipeline import _is_image
+
+
+def test_is_image_detects_png():
+    assert _is_image("png") is True
+    assert _is_image("jpg") is True
+    assert _is_image("jpeg") is True
+    assert _is_image("gif") is True
+
+
+def test_is_image_rejects_text():
+    assert _is_image("txt") is False
+    assert _is_image("md") is False
+    assert _is_image("pdf") is False
 
 def test_extract_txt(tmp_path):
     f = tmp_path / "test.txt"

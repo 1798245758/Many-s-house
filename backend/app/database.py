@@ -6,13 +6,22 @@ from app.config import DB_PATH
 Base = declarative_base()
 _engine = None
 _SessionLocal = None
+_current_db_path = None
+
+
+def reset_engine():
+    global _engine, _SessionLocal, _current_db_path
+    _engine = None
+    _SessionLocal = None
+    _current_db_path = None
 
 
 def get_engine(db_path=None):
-    global _engine
-    if _engine is None:
-        path = db_path or str(DB_PATH)
+    global _engine, _current_db_path
+    path = db_path or str(DB_PATH)
+    if _engine is None or _current_db_path != path:
         _engine = create_engine(f"sqlite:///{path}", echo=False, connect_args={"check_same_thread": False})
+        _current_db_path = path
     return _engine
 
 

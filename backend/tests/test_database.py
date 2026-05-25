@@ -1,5 +1,15 @@
 import pytest
-from app.database import get_engine, get_session_local, get_db, Base, init_db
+import tempfile
+import os
+from sqlalchemy import inspect
+from app.database import get_engine, get_session_local, get_db, Base, init_db, reset_engine
+
+
+@pytest.fixture(autouse=True)
+def _reset_db():
+    reset_engine()
+    yield
+    reset_engine()
 
 
 def test_get_engine_returns_sqlite_engine():
@@ -24,16 +34,13 @@ def test_get_db_yields_session():
 
 
 def test_init_db_creates_tables():
-    import tempfile
-    import os
-
-    tmp = tempfile.mktemp(suffix=".db")
+    fd, tmp = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
     try:
         init_db(db_path=tmp)
         engine = get_engine()
-        inspector = __import__("sqlalchemy").inspect(engine)
+        inspector = inspect(engine)
         tables = inspector.get_table_names()
-        print(f"Tables: {tables}")
+        assert isinstance(tables, list)
     finally:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+        get_engine().dispose()

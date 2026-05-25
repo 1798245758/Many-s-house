@@ -32,8 +32,11 @@ export async function uploadFile(url, formData) {
   } catch {
     throw new Error('后端服务未启动，请在 frontend/ 目录执行 npm run dev 自动启动')
   }
-  if (!res.ok) throw new Error('上传失败')
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.message || '上传失败')
+  }
   const data = await res.json()
-  if (data.code !== 'SUCCESS') throw new Error(data.message)
+  if (data.code !== 'SUCCESS') throw new Error(data.message || '上传失败')
   return data.data
 }

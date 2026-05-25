@@ -47,7 +47,7 @@ export default function Chat() {
       {answer && (
         <div className="card" style={{marginTop:20}}>
           <h3>回答</h3>
-          <p style={{whiteSpace:'pre-wrap',margin:'12px 0'}}>{answer}</p>
+          <div className="answer-text">{answer}</div>
           {sources.length > 0 && (
             <details>
               <summary>参考来源 ({sources.length})</summary>

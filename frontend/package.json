@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -n backend,frontend -c blue,green \"cd ../backend && py -m uvicorn app.main:app --reload --port 8000\" \"vite\"",
+    "dev:frontend": "vite",
+    "dev:backend": "cd ../backend && py -m uvicorn app.main:app --reload --port 8000",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.2.1",
     "vite": "^5.4.11"
   }
 }

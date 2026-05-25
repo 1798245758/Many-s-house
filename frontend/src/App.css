@@ -1,5 +1,5 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+body { font-family: 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
 body.dark { background: #1a1a2e; color: #e0e0e0; }
 body.dark .navbar { background: #16213e; border-bottom: 1px solid #0f3460; }
 body.dark .card { background: #16213e; border: 1px solid #0f3460; }

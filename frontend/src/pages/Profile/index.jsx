@@ -80,9 +80,13 @@ export default function Profile() {
 
       <div className="card">
         <h3 style={{marginBottom:12}}>主题设置</h3>
-        <div>
-          <label><input type="radio" checked={theme === 'light'} onChange={() => setTheme('light')} /> 亮色</label>
-          <label style={{marginLeft:16}}><input type="radio" checked={theme === 'dark'} onChange={() => setTheme('dark')} /> 暗色</label>
+        <div style={{display:'flex',alignItems:'center',gap:16}}>
+          <label style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}>
+            <input type="radio" checked={theme === 'light'} onChange={() => setTheme('light')} style={{width:'auto'}} /> 亮色
+          </label>
+          <label style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}>
+            <input type="radio" checked={theme === 'dark'} onChange={() => setTheme('dark')} style={{width:'auto'}} /> 暗色
+          </label>
         </div>
       </div>
     </div>

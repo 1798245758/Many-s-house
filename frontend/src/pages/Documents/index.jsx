@@ -69,7 +69,7 @@ export default function Documents() {
         <button className="btn btn-primary" onClick={handleSearch}>搜索</button>
         <label className="btn btn-primary" style={{cursor:'pointer'}}>
           {uploading ? '上传中...' : '上传文档'}
-          <input type="file" multiple accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.bmp" onChange={handleUpload} hidden disabled={uploading} />
+          <input type="file" multiple accept=".pdf,.txt,.md,.xmind,.png,.jpg,.jpeg,.gif,.webp,.bmp" onChange={handleUpload} hidden disabled={uploading} />
         </label>
       </div>
 
@@ -90,7 +90,7 @@ export default function Documents() {
               <div style={{display:'flex',gap:8,flexShrink:0}}>
                 <label className="btn btn-primary" style={{cursor:'pointer',fontSize:'0.85rem'}}>
                   替换
-                  <input type="file" accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.bmp" onChange={e => { const f = e.target.files[0]; if (f) handleReplace(doc.id, f) }} hidden />
+                  <input type="file" accept=".pdf,.txt,.md,.xmind,.png,.jpg,.jpeg,.gif,.webp,.bmp" onChange={e => { const f = e.target.files[0]; if (f) handleReplace(doc.id, f) }} hidden />
                 </label>
                 <button className="btn btn-danger" onClick={() => handleDelete(doc.id)}>删除</button>
               </div>

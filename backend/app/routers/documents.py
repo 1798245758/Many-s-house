@@ -13,7 +13,7 @@ from app.schemas.document import DocumentOut
 from app.services.ingestion.pipeline import ingest_document
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
-ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".xmind", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
 def _process_one(file: UploadFile, db: Session):
     suffix = Path(file.filename or "").suffix.lower()

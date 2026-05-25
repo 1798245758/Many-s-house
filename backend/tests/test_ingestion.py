@@ -65,3 +65,24 @@ def test_chunk_preserves_heading():
     text = "第一章\n\n第一段。\n\n第二段。"
     chunks = semantic_chunk(text, max_tokens=100)
     assert len(chunks) >= 1
+
+
+def test_extract_xmind(tmp_path):
+    import zipfile, json
+    f = tmp_path / "test.xmind"
+    content = [{"id": "root", "title": "中心主题", "rootTopic": {
+        "id": "r1", "title": "中心主题",
+        "children": {"attached": [
+            {"id": "c1", "title": "子主题A"},
+            {"id": "c2", "title": "子主题B", "children": {"attached": [
+                {"id": "c3", "title": "孙主题"}
+            ]}}
+        ]}
+    }}]
+    with zipfile.ZipFile(str(f), "w") as z:
+        z.writestr("content.json", json.dumps(content, ensure_ascii=False))
+    result = extract_text(f)
+    assert "中心主题" in result
+    assert "子主题A" in result
+    assert "子主题B" in result
+    assert "孙主题" in result

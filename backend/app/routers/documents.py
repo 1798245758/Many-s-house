@@ -1,5 +1,6 @@
 import shutil
 from pathlib import Path
+from typing import List
 from fastapi import APIRouter, UploadFile, File, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -20,28 +21,39 @@ def _get_deepseek_client(db: Session) -> DeepSeekClient:
     api_key = setting.value if setting else ""
     return DeepSeekClient(api_key=api_key)
 
-@router.post("/upload", response_model=ApiResponse)
-def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def _process_one(file: UploadFile, db: Session):
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
-        return ApiResponse(code="PARAM_ERROR", message=f"不支持的文件类型: {suffix}")
+        raise ValueError(f"不支持的文件类型: {suffix}")
     save_path = UPLOAD_DIR / file.filename
     try:
         with open(save_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
     except Exception:
-        return ApiResponse(code="SERVER_ERROR", message="文件保存失败")
+        raise Exception("文件保存失败")
     client = _get_deepseek_client(db)
-    try:
-        doc = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."), client)
-    except ValueError as e:
-        return ApiResponse(code="PARAM_ERROR", message=str(e))
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return ApiResponse(code="DOC_PROCESS_ERROR", message=str(e))
-    data = DocumentOut.model_validate(doc).model_dump()
-    return ApiResponse(code="SUCCESS", message="文档上传并处理成功", data=data)
+    doc = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."), client)
+    return DocumentOut.model_validate(doc).model_dump()
+
+@router.post("/upload", response_model=ApiResponse)
+def upload_documents(files: List[UploadFile] = File(...), db: Session = Depends(get_db)):
+    results = []
+    errors = []
+    for file in files:
+        try:
+            data = _process_one(file, db)
+            results.append(data)
+        except ValueError as e:
+            errors.append({"filename": file.filename, "message": str(e)})
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            errors.append({"filename": file.filename, "message": str(e)})
+    return ApiResponse(
+        code="SUCCESS" if not errors else "PARTIAL_SUCCESS",
+        message=f"成功 {len(results)} 个，失败 {len(errors)} 个" if errors else "全部上传成功",
+        data={"uploaded": results, "errors": errors},
+    )
 
 @router.get("", response_model=ApiResponse)
 def list_documents(db: Session = Depends(get_db)):

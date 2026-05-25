@@ -22,11 +22,11 @@ export default function Documents() {
   useEffect(() => { fetchDocs() }, [fetchDocs])
 
   const handleUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
+    const files = e.target.files
+    if (!files.length) return
     setUploading(true)
     setError('')
-    try { await uploadDocument(file); fetchDocs() }
+    try { await uploadDocument(files); fetchDocs() }
     catch (err) { setError(err.message) }
     finally { setUploading(false) }
   }
@@ -42,7 +42,7 @@ export default function Documents() {
       <div style={{marginBottom:20}}>
         <label className="btn btn-primary" style={{cursor:'pointer'}}>
           {uploading ? '上传中...' : '上传文档'}
-          <input type="file" accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.bmp" onChange={handleUpload} hidden disabled={uploading} />
+          <input type="file" multiple accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.gif,.webp,.bmp" onChange={handleUpload} hidden disabled={uploading} />
         </label>
       </div>
       {error && <ErrorMessage message={error} />}

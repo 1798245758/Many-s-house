@@ -1,1 +1,7 @@
 .superpowers/
+__pycache__/
+*.pyc
+*.db
+.pytest_cache/
+backend/data/
+backend/uploads/

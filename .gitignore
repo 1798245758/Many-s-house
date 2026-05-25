@@ -5,3 +5,5 @@ __pycache__/
 .pytest_cache/
 backend/data/
 backend/uploads/
+node_modules/
+dist/

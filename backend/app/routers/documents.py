@@ -16,9 +16,11 @@ from app.services.deepseek import DeepSeekClient
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 
-def _get_deepseek_client(db: Session) -> DeepSeekClient:
+def _get_deepseek_client(db: Session):
     setting = db.query(Setting).filter(Setting.key == "api_key").first()
     api_key = setting.value if setting else ""
+    if not api_key:
+        return None
     return DeepSeekClient(api_key=api_key)
 
 def _process_one(file: UploadFile, db: Session):

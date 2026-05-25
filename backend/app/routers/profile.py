@@ -42,6 +42,7 @@ def get_settings(db: Session = Depends(get_db)):
     return ApiResponse(data=SettingOut(
         theme=theme.value if theme else "light",
         api_key_configured=bool(api_key and api_key.value),
+        api_key=api_key.value if api_key else "",
     ).model_dump())
 
 @router.put("/settings", response_model=ApiResponse)

@@ -15,6 +15,7 @@ class ProfileUpdate(BaseModel):
 class SettingOut(BaseModel):
     theme: str = "light"
     api_key_configured: bool = False
+    api_key: str = ""
 
 class SettingUpdate(BaseModel):
     api_key: str | None = None

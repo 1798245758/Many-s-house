@@ -20,6 +20,7 @@ export default function Profile() {
         const [profile, settings] = await Promise.all([getProfile(), getSettings()])
         setNickname(profile.nickname || '')
         setEmail(profile.email || '')
+        setApiKey(settings.api_key || '')
       } catch (e) { setError(e.message) }
       finally { setLoading(false) }
     })()

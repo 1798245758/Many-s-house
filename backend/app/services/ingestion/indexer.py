@@ -2,16 +2,24 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.models.chunk import Chunk
 from app.models.document import Document
+import traceback
+import sys
+
 
 def build_fts_index(engine):
-    with engine.connect() as conn:
-        conn.execute(text("""
-            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-                content, content='chunks', content_rowid='id'
-            )
-        """))
-        conn.execute(text("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')"))
-        conn.commit()
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                    content, content='chunks', content_rowid='id'
+                )
+            """))
+            conn.execute(text("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')"))
+            conn.commit()
+    except Exception:
+        print("WARNING: FTS5 index build failed, falling back to vector-only search", file=sys.stderr)
+        traceback.print_exc()
+
 
 def save_chunks(db: Session, document_id: int, chunks_content: list[str], embeddings: list[bytes]):
     for i, (content, emb) in enumerate(zip(chunks_content, embeddings)):

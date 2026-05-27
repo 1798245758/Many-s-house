@@ -1,9 +1,11 @@
+import { useNavigate } from 'react-router-dom'
 import { useState, useEffect, useCallback } from 'react'
 import { getHistories, deleteHistory } from '../../api/history'
 import Loading from '../../components/Loading'
 import ErrorMessage from '../../components/ErrorMessage'
 
 export default function History() {
+  const navigate = useNavigate()
   const [histories, setHistories] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -37,7 +39,10 @@ export default function History() {
               <p style={{marginTop:8,whiteSpace:'pre-wrap',color:'#555'}}>{h.answer_text.slice(0, 300)}{h.answer_text.length > 300 ? '...' : ''}</p>
               <small style={{color:'#999'}}>{h.created_at}</small>
             </div>
-            <button className="btn btn-danger" style={{height:'fit-content'}} onClick={() => handleDelete(h.id)}>删除</button>
+              <div style={{display:'flex',gap:8,flexShrink:0}}>
+                <button className="btn btn-primary" style={{height:'fit-content'}} onClick={() => navigate(`/chat?q=${encodeURIComponent(h.query_text)}`)}>重新提问</button>
+                <button className="btn btn-danger" style={{height:'fit-content'}} onClick={() => handleDelete(h.id)}>删除</button>
+              </div>
           </div>
         </div>
       ))}

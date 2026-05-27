@@ -1,23 +1,31 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { submitQuery } from '../../api/query'
 import Loading from '../../components/Loading'
 import ErrorMessage from '../../components/ErrorMessage'
 
 export default function Chat() {
+  const [searchParams] = useSearchParams()
   const [question, setQuestion] = useState('')
   const [answer, setAnswer] = useState('')
   const [sources, setSources] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!question.trim()) return
+  useEffect(() => {
+    const q = searchParams.get('q')
+    if (q) {
+      setQuestion(q)
+      handleAsk(q)
+    }
+  }, [])
+
+  const handleAsk = async (text) => {
     setLoading(true)
     setError('')
     setAnswer('')
     try {
-      const data = await submitQuery(question)
+      const data = await submitQuery(text)
       setAnswer(data.answer)
       setSources(data.sources || [])
     } catch (err) {
@@ -25,6 +33,12 @@ export default function Chat() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!question.trim()) return
+    handleAsk(question)
   }
 
   return (

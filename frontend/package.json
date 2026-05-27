@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n backend,frontend -c blue,green \"cd ../backend && py -m uvicorn app.main:app --reload --port 8000\" \"wait-on http://127.0.0.1:8000 && vite\"",
+    "dev": "concurrently -n backend,frontend -c blue,green \"cd ../backend && py -m uvicorn app.main:app --reload --port 8000\" \"wait-on tcp:127.0.0.1:8000 && vite\"",
     "dev:frontend": "vite",
     "dev:backend": "cd ../backend && py -m uvicorn app.main:app --reload --port 8000",
     "build": "vite build",

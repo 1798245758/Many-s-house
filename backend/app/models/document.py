@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, func
+from sqlalchemy import Column, Integer, String, Text, func
 from app.database import Base
 
 
@@ -10,5 +10,7 @@ class Document(Base):
     file_type = Column(String, nullable=False)
     file_size = Column(Integer)
     chunk_count = Column(Integer, default=0)
-    status = Column(String, default="pending")
+    status = Column(String, default="pending")  # pending/processing/ready/error
+    metadata_json = Column(Text)  # 存储元数据JSON
+    structure_json = Column(Text)  # 存储结构信息JSON
     created_at = Column(String, server_default=func.datetime('now'))

@@ -1,5 +1,5 @@
 from typing import Dict, Type
-from app.services.ingestion.loaders.base import BaseLoader
+from app.services.ingestion.loaders.base import BaseLoader, DocumentResult
 
 
 class DocumentLoaderManager:

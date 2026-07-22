@@ -1,4 +1,5 @@
 from sentence_transformers import SentenceTransformer
+from functools import lru_cache
 import struct
 import logging
 
@@ -37,6 +38,12 @@ def embed_text(text: str) -> bytes:
         logger.error(f"文本向量化失败: {e}")
         # 返回零向量作为后备
         return struct.pack(f"{EMBEDDING_DIM}f", *[0.0] * EMBEDDING_DIM)
+
+
+@lru_cache(maxsize=1000)
+def get_cached_embedding(text: str) -> bytes:
+    """缓存文本的embedding结果"""
+    return embed_text(text)
 
 
 def embed_text_list(texts: list[str]) -> list[bytes]:

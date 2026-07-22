@@ -1,3 +1,4 @@
+import json
 import struct
 from sqlalchemy.orm import Session
 from app.services.deepseek import DeepSeekClient
@@ -9,6 +10,12 @@ from app.schemas.query import SourceInfo, QueryResponse
 def embed_query(text: str) -> list[float]:
     packed = embed_text(text)
     return list(struct.unpack(f"{EMBEDDING_DIM}f", packed))
+
+
+def parse_embedding(raw: str | bytes) -> list[float]:
+    if isinstance(raw, bytes):
+        return list(struct.unpack(f"{EMBEDDING_DIM}f", raw))
+    return json.loads(raw)
 
 
 def generate_answer(db: Session, query_text: str, client: DeepSeekClient) -> QueryResponse:

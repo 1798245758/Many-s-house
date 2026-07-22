@@ -2,8 +2,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.models.chunk import Chunk
 from app.models.document import Document
+import json
+import struct
 import traceback
 import sys
+from app.services.embedding import EMBEDDING_DIM
 
 
 def build_fts_index(engine):
@@ -23,12 +26,13 @@ def build_fts_index(engine):
 
 def save_chunks(db: Session, document_id: int, chunks_content: list[str], embeddings: list[bytes]):
     for i, (content, emb) in enumerate(zip(chunks_content, embeddings)):
+        vec = list(struct.unpack(f"{EMBEDDING_DIM}f", emb))
         chunk = Chunk(
             document_id=document_id,
             chunk_index=i,
             content=content,
             token_count=len(content),
-            embedding=emb,
+            embedding=json.dumps(vec),
         )
         db.add(chunk)
     doc = db.query(Document).filter(Document.id == document_id).first()

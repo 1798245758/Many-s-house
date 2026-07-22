@@ -85,3 +85,50 @@ def test_create_setting(db_session):
     assert queried is not None
     assert queried.key == "theme"
     assert queried.value == "dark"
+
+
+def test_document_metadata_json_roundtrip(db_session):
+    from app.models.document import Document
+
+    meta = {"source": "web", "tags": ["ai", "ml"]}
+    structure = {"headings": ["Intro", "Methods"], "page_count": 10}
+    doc = Document(
+        filename="test.pdf",
+        file_type="pdf",
+        file_size=1024,
+        metadata_json=json.dumps(meta),
+        structure_json=json.dumps(structure),
+    )
+    db_session.add(doc)
+    db_session.commit()
+
+    queried = db_session.query(Document).filter(Document.id == doc.id).first()
+    assert json.loads(queried.metadata_json) == meta
+    assert json.loads(queried.structure_json) == structure
+
+
+def test_chunk_metadata_json_and_embedding_string(db_session):
+    from app.models.document import Document
+    from app.models.chunk import Chunk
+
+    doc = Document(filename="test.pdf", file_type="pdf", file_size=1024)
+    db_session.add(doc)
+    db_session.commit()
+
+    meta = {"section": "intro", "page": 1}
+    emb_list = [0.1] * 384
+    chunk = Chunk(
+        document_id=doc.id,
+        chunk_index=0,
+        content="Hello world",
+        token_count=3,
+        metadata_json=json.dumps(meta),
+        embedding=json.dumps(emb_list),
+    )
+    db_session.add(chunk)
+    db_session.commit()
+
+    queried = db_session.query(Chunk).filter(Chunk.id == chunk.id).first()
+    assert json.loads(queried.metadata_json) == meta
+    assert json.loads(queried.embedding) == emb_list
+    assert isinstance(queried.embedding, str)

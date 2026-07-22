@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import Optional
+import json
 from sqlalchemy.orm import Session
 from app.models.document import Document
-from app.services.ingestion.extractor import extract_text
+from app.services.ingestion.extractor import extract_document
 from app.services.ingestion.cleaner import clean_text
 from app.services.ingestion.chunker import semantic_chunk
 from app.services.ingestion.embedder import vectorize_chunks
@@ -21,6 +22,8 @@ def ingest_document(db: Session, file_path: Path, filename: str, file_type: str,
         doc.file_size = file_path.stat().st_size
         doc.status = "processing"
         doc.chunk_count = 0
+        doc.metadata_json = None
+        doc.structure_json = None
         db.commit()
     else:
         doc = Document(filename=filename, file_type=file_type, file_size=file_path.stat().st_size, status="processing")
@@ -30,8 +33,19 @@ def ingest_document(db: Session, file_path: Path, filename: str, file_type: str,
     try:
         if _is_image(file_type):
             raw_text = f"[图片文件: {filename}]  (可上传 XMind 等思维导图导出图片，系统已保存)"
+            metadata = {}
+            structure = {}
         else:
-            raw_text = extract_text(file_path)
+            doc_info = extract_document(file_path)
+            raw_text = doc_info["content"]
+            metadata = doc_info["metadata"]
+            structure = doc_info["structure"]
+            
+            # 存储元数据和结构信息
+            doc.metadata_json = json.dumps(metadata, ensure_ascii=False)
+            doc.structure_json = json.dumps(structure, ensure_ascii=False)
+            db.commit()
+        
         cleaned = clean_text(raw_text)
         chunks = semantic_chunk(cleaned)
         embeddings = vectorize_chunks(chunks)

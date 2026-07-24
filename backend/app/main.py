@@ -5,6 +5,11 @@ from fastapi.responses import JSONResponse
 from app.database import Base, get_engine
 from app.config import init_dirs
 from app.routers import documents, query, history, profile
+from dotenv import load_dotenv
+import os
+
+# 加载环境变量
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

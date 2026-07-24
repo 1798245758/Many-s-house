@@ -5,12 +5,16 @@ import logging
 import hashlib
 import threading
 import time
+import os
 
 logger = logging.getLogger(__name__)
 
 _model = None
 _model_loading = False
 _model_lock = threading.Lock()
+
+# 设置HuggingFace镜像（国内加速）
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 def get_model():
     """获取BGE模型实例（单例模式，带超时）"""

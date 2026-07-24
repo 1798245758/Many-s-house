@@ -9,7 +9,7 @@ DB_PATH = DATA_DIR / "knowledge.db"
 # BGE模型配置
 USE_BGE_MODEL = os.getenv("USE_BGE_MODEL", "true").lower() == "true"
 BGE_MODEL_NAME = os.getenv("BGE_MODEL_NAME", "BAAI/bge-base-zh-v1.5")
-BGE_MODEL_TIMEOUT = int(os.getenv("BGE_MODEL_TIMEOUT", "30"))  # 超时时间（秒）
+BGE_MODEL_TIMEOUT = int(os.getenv("BGE_MODEL_TIMEOUT", "120"))  # 超时时间（秒），首次下载需要更长时间
 
 
 def init_dirs():

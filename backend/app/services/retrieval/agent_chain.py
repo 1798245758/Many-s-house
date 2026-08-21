@@ -112,8 +112,10 @@ def build_rag_graph(db: Session, api_key: str, model=None):
     通过闭包捕获本次请求的 db 会话与 model，每次请求构建新图，
     天然适配 FastAPI 的请求级依赖注入。model 参数仅供测试注入 mock。
     """
-    if model is None:
-        model = _build_model(api_key)
+    def get_model():
+        """惰性构建模型客户端：门禁/拒绝/澄清/无命中短路路径零初始化"""
+        return model if model is not None else _build_model(api_key)
+
     parser = StrOutputParser()
 
     # ===== 2. 定义节点：每个节点是一个函数，读 State、写 State =====
@@ -148,7 +150,7 @@ def build_rag_graph(db: Session, api_key: str, model=None):
                 ("system", SYSTEM_PROMPT),
                 ("human", "问题: {question}"),
             ])
-            | model
+            | get_model()
             | parser
         )
         return {"answer": direct_chain.invoke({"question": state["question"]})}
@@ -194,7 +196,7 @@ def build_rag_graph(db: Session, api_key: str, model=None):
                 ("system", SYSTEM_PROMPT),
                 ("human", "上下文:\n{context}\n\n问题: {question}"),
             ])
-            | model
+            | get_model()
             | parser
         )
         return {"answer": answer_chain.invoke(state)}

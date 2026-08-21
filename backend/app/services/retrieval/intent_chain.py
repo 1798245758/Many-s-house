@@ -1,16 +1,19 @@
-"""意图识别与信息完整性检查 Chain（两阶段 LLM 调用）
+"""意图识别与信息完整性检查图（LangGraph 两阶段状态图）
 
-① classify_chain  分类：判断问题动作 refuse/clarify/direct/search + 风险理由
-② slot_chain      槽位提取：任务/实体/时间/风险备注 + 检索关键词或澄清问题
+===== 1. 定义状态：在节点间流转的共享数据结构 =====
+IntentState：question → classify 节点写入 action/risk_reason → 条件边分流
+  ├─ refuse        → 直接 END（slots 保持 None）
+  └─ 其余 action   → slot 节点提取槽位 → END
 
-普通函数 build_intent_gate 编排两阶段并按 action 分流，不依赖 LangGraph。
-任一阶段失败均降级为"以原问题作关键词走检索"，保证可用性优先。
+任一节点失败均降级为"以原问题作关键词走检索"，保证可用性优先。
+build_intent_gate 返回 gate(question) -> dict 的调用入口，签名与旧版一致。
 """
 import logging
-from typing import Literal
+from typing import Literal, TypedDict
 
 from langchain.chat_models import init_chat_model
 from langchain_core.prompts import ChatPromptTemplate
+from langgraph.graph import StateGraph, START, END
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -57,8 +60,21 @@ class SlotResult(BaseModel):
     clarification_question: str = ""
 
 
+class IntentState(TypedDict, total=False):
+    """意图关卡状态：在 classify/slot 节点间流转"""
+    question: str
+    action: str
+    risk_reason: str
+    slots: SlotResult
+
+
+def fallback_slots(question: str) -> SlotResult:
+    """降级兜底槽位：task 未知、用原问题作检索关键词"""
+    return SlotResult(task="未知", search_keywords=[question])
+
+
 def build_intent_gate(api_key: str, model=None):
-    """构建意图关卡：返回 gate(question) -> dict
+    """构建意图关卡状态图：返回 gate(question) -> dict
 
     返回 dict 结构：{"action", "risk_reason", "slots"(SlotResult|None), "question"}
     model 参数仅供测试注入 mock；缺省时初始化 DeepSeek（OpenAI 兼容协议）。
@@ -72,39 +88,63 @@ def build_intent_gate(api_key: str, model=None):
             temperature=0.3,
         )
 
+    # method="function_calling"：DeepSeek 不支持 json_schema 的 response_format，
+    # 走工具调用协议实现结构化输出
     classify_chain = (
         ChatPromptTemplate.from_template(CLASSIFY_PROMPT)
-        | model.with_structured_output(ClassifyResult)
+        | model.with_structured_output(ClassifyResult, method="function_calling")
     )
     slot_chain = (
         ChatPromptTemplate.from_template(SLOT_PROMPT)
-        | model.with_structured_output(SlotResult)
+        | model.with_structured_output(SlotResult, method="function_calling")
     )
 
-    def fallback_slots(question: str) -> SlotResult:
-        return SlotResult(task="未知", search_keywords=[question])
-
-    def intent_gate(question: str) -> dict:
-        # 第一阶段：分类；失败降级为 search + 原问题关键词
+    # ===== 2. 定义节点：每个节点是一个函数，读 State、写 State =====
+    def classify_node(state: IntentState) -> dict:
+        """第一阶段：分类；失败降级为 search + 兜底槽位"""
         try:
-            cls = classify_chain.invoke({"question": question})
+            cls = classify_chain.invoke({"question": state["question"]})
+            return {"action": cls.action, "risk_reason": cls.risk_reason}
         except Exception as e:
             logger.warning(f"意图分类失败，降级为检索: {e}")
             return {"action": "search", "risk_reason": "",
-                    "slots": fallback_slots(question), "question": question}
+                    "slots": fallback_slots(state["question"])}
 
-        if cls.action == "refuse":
-            return {"action": "refuse", "risk_reason": cls.risk_reason,
-                    "slots": None, "question": question}
-
-        # 第二阶段：槽位提取；失败用原问题兜底关键词
+    def slot_node(state: IntentState) -> dict:
+        """第二阶段：槽位提取；失败用原问题兜底关键词"""
+        if state.get("slots") is not None:  # classify 降级时已写入兜底槽位
+            return {}
         try:
-            slots = slot_chain.invoke({"question": question, "action": cls.action})
+            slots = slot_chain.invoke({"question": state["question"],
+                                       "action": state["action"]})
+            return {"slots": slots}
         except Exception as e:
             logger.warning(f"槽位提取失败，用原问题兜底: {e}")
-            slots = fallback_slots(question)
+            return {"slots": fallback_slots(state["question"])}
 
-        return {"action": cls.action, "risk_reason": cls.risk_reason,
-                "slots": slots, "question": question}
+    # ===== 条件边：判断函数，入参为上一个节点写入后的状态 =====
+    def route_classify(state: IntentState) -> str:
+        return "end" if state.get("action") == "refuse" else "slot"
+
+    # ===== 3. 构建图 =====
+    graph = StateGraph(IntentState)
+    graph.add_node("classify", classify_node)
+    graph.add_node("slot", slot_node)
+
+    graph.add_edge(START, "classify")
+    graph.add_conditional_edges("classify", route_classify, {"end": END, "slot": "slot"})
+    graph.add_edge("slot", END)
+
+    gate_graph = graph.compile()
+
+    # ===== 4. 执行入口（对外签名与旧版一致）=====
+    def intent_gate(question: str) -> dict:
+        out = gate_graph.invoke({"question": question})
+        return {
+            "action": out["action"],
+            "risk_reason": out.get("risk_reason", ""),
+            "slots": out.get("slots"),  # refuse 或异常路径下可能为 None
+            "question": question,
+        }
 
     return intent_gate

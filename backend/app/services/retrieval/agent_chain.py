@@ -1,28 +1,30 @@
-"""基于 LangChain 链式架构(LCEL 管道风格)的知识库问答 Chain
+"""基于 LangGraph 状态图的知识库问答 Graph
 
-入口先过两阶段意图关卡（app/services/retrieval/intent_chain.py）：
+===== 图结构 =====
+START → permission_gate（确定性门禁，不调 LLM）
+          ├─ 员工命中经理专属主题 → END（permission_denied）
+          └─ 放行 → intent（意图关卡子图：classify + slot）
+intent 条件边按 action 分流：
+          ├─ refuse  → END（固定拒绝话术）
+          ├─ clarify → END（澄清问题 + 意图分析）
+          ├─ direct  → direct 节点（空上下文直答）→ END
+          └─ search  → embed → search → rerank
+                        ├─ 无命中 → END（固定话术，不调 LLM）
+                        └─ 有命中 → context → answer → END
 
-    {"question": 问题} → intent_gate（classify_chain + slot_chain）
-      ├─ refuse  → 固定礼貌拒绝话术
-      ├─ clarify → 澄清问题 + 部分意图分析
-      ├─ direct  → 空上下文直答
-      └─ search  → 先跑检索三段（一次 invoke），无命中直接返回固定话术；
-            有命中再跑生成两段，共五段：
-            embed_chain      ① 关键词向量化
-            search_chain     ② hybrid_search 混合检索（关键词来自槽位提取）
-            rerank_chain     ③ 用 ChromaDB 已存向量算余弦相似度重排
-            context_chain    ④ 拼成带来源标注的上下文
-            answer_chain     ⑤ prompt | model | parser 生成回答
-
-不依赖任何 LangGraph 组件，全部为 Runnable + | 管道组装。
+检索与生成分离在条件边上：rerank 后若无命中直接结束，
+避免无命中时白白消耗一次 LLM 调用、或 LLM 异常时吞掉固定兜底话术。
+不依赖 LangGraph 的 checkpointer（单轮无状态），全部为节点 + 条件边组装。
 """
 import math
 import struct
+from typing import TypedDict
 
 from langchain.chat_models import init_chat_model
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+from langchain_core.runnables import RunnableLambda
+from langgraph.graph import StateGraph, START, END
 from sqlalchemy.orm import Session
 
 from app.services.deepseek import DeepSeekClient
@@ -49,6 +51,9 @@ REFUSAL_MESSAGE = "抱歉，我无法回答该问题。请提出与企业知识�
 
 # 员工提问命中经理专属主题时的固定话术（不再调用 LLM）
 PERMISSION_DENIED_MESSAGE = "该问题涉及经理专属内容，当前员工权限不足，无法提供相关信息。"
+
+# search 无命中时的固定话术（不再调用 LLM）
+NO_RESULT_MESSAGE = "当前知识库中没有相关信息，请先上传文档。"
 
 
 def _build_model(api_key: str):
@@ -86,97 +91,185 @@ def _to_intent_info(slots) -> IntentInfo:
     )
 
 
-def build_rag_chain(db: Session, api_key: str, model=None, exclude_doc_ids: list[int] | None = None):
-    """构建检索五段式 Chain（仅 search 分支使用），拆为两段返回
+# ===== 1. 定义状态：在节点间流转的共享数据结构 =====
+class RAGState(TypedDict, total=False):
+    question: str                # 用户原始问题
+    role: str                    # employee | manager
+    permission_denied: bool      # 角色主题门禁命中
+    action: str                  # refuse | clarify | direct | search
+    slots: object                # SlotResult | None（意图关卡槽位）
+    search_query: str            # 检索关键词串（来自槽位或原问题兜底）
+    embedding: list[float]       # 查询向量
+    hits: list                   # hybrid_search 原始命中
+    ranked: list                 # 余弦相似度重排后的 Chunk 列表
+    context: str                 # 带来源标注的上下文
+    answer: str                  # 最终回答文本
 
-    返回 (retrieval_chain, answer_chain)：
-    - retrieval_chain  检索三段（向量化→检索→精排），先跑完用于判断是否命中，
-      避免无命中时白白消耗一次 LLM 调用、或 LLM 异常时吞掉固定兑底话术；
-    - answer_chain     生成两段（上下文→回答），命中后才执行。
 
-    exclude_doc_ids：员工角色时传入经理专属文档 ID，检索层排除。
+def build_rag_graph(db: Session, api_key: str, model=None):
+    """构建问答状态图并编译返回
 
-    通过闭包捕获本次请求的 db 会话，使检索逻辑能访问数据库；
-    每次请求构建新 Chain，天然适配 FastAPI 的请求级依赖注入。
-    model 参数仅供测试注入 mock。
+    通过闭包捕获本次请求的 db 会话与 model，每次请求构建新图，
+    天然适配 FastAPI 的请求级依赖注入。model 参数仅供测试注入 mock。
     """
     if model is None:
         model = _build_model(api_key)
     parser = StrOutputParser()
 
-    # ① 关键词向量化 Chain：检索关键词串 → 768维查询向量
-    embed_chain = RunnableLambda(lambda state: embed_query(state["search_query"]))
+    # ===== 2. 定义节点：每个节点是一个函数，读 State、写 State =====
+    def permission_gate_node(state: RAGState) -> dict:
+        """角色主题门禁：员工提问命中经理专属关键词直接短路，不调 LLM"""
+        if state["role"] != ROLE_MANAGER and any(
+            kw in state["question"] for kw in MANAGER_KEYWORDS
+        ):
+            return {"permission_denied": True, "answer": PERMISSION_DENIED_MESSAGE}
+        return {"permission_denied": False}
 
-    # ② 检索 Chain：向量+文本混合检索（关键词来自意图关卡槽位提取，按角色排除不可见文档）
-    def do_search(state: dict) -> list:
-        return hybrid_search(db, state["embedding"], state["search_query"], top_k=10,
-                             exclude_doc_ids=exclude_doc_ids)
+    def intent_node(state: RAGState) -> dict:
+        """意图关卡（classify + slot 子图），并改写检索关键词
 
-    search_chain = RunnableLambda(do_search)
+        门禁短路路径不会到达本节点，故在此惰性构建关卡，
+        避免被拦截的请求白白初始化结构化输出链。
+        """
+        gate = build_intent_gate(api_key, model=model)
+        intent = gate(state["question"])
+        slots = intent["slots"]
+        search_query = (
+            " ".join(slots.search_keywords)
+            if slots is not None and slots.search_keywords
+            else state["question"]
+        )
+        return {"action": intent["action"], "slots": slots, "search_query": search_query}
 
-    # ③ 精排 Chain：从ChromaDB读候选向量，按与查询向量的余弦相似度降序重排
-    def do_rerank(state: dict) -> list:
+    def direct_node(state: RAGState) -> dict:
+        """direct 分支：空上下文直答"""
+        direct_chain = (
+            ChatPromptTemplate.from_messages([
+                ("system", SYSTEM_PROMPT),
+                ("human", "问题: {question}"),
+            ])
+            | model
+            | parser
+        )
+        return {"answer": direct_chain.invoke({"question": state["question"]})}
+
+    def embed_node(state: RAGState) -> dict:
+        """检索关键词串 → 768维查询向量"""
+        return {"embedding": embed_query(state["search_query"])}
+
+    def search_node(state: RAGState) -> dict:
+        """向量+文本混合检索（员工角色排除经理专属文档）"""
+        exclude = manager_doc_ids(db) if state["role"] != ROLE_MANAGER else None
+        hits = hybrid_search(db, state["embedding"], state["search_query"], top_k=10,
+                             exclude_doc_ids=exclude)
+        return {"hits": hits}
+
+    def rerank_node(state: RAGState) -> dict:
+        """从ChromaDB读候选向量，按与查询向量的余弦相似度降序重排"""
         hits = state["hits"]
         if len(hits) <= 1:
-            return hits
+            return {"ranked": hits}
         embeddings = vector_store.get_embeddings([c.id for c in hits])
+
         def score(chunk):
             vec = embeddings.get(chunk.id)
             # ChromaDB可能返回numpy数组，不能用if vec判空；缺失时记-1排最后
             return _cosine(state["embedding"], list(vec)) if vec is not None else -1.0
-        return sorted(hits, key=score, reverse=True)
 
-    rerank_chain = RunnableLambda(do_rerank)
+        return {"ranked": sorted(hits, key=score, reverse=True)}
 
-    # ④ 上下文组织 Chain：精排后的Chunk → 带来源标注的上下文文本
-    def build_context(state: dict) -> str:
-        return "\n\n".join(
+    def context_node(state: RAGState) -> dict:
+        """精排后的Chunk → 带来源标注的上下文文本"""
+        context = "\n\n".join(
             f"[来源: {c.document.filename if c.document else '未知'}]\n{c.content}"
             for c in state["ranked"]
         )
+        return {"context": context}
 
-    context_chain = RunnableLambda(build_context)
+    def answer_node(state: RAGState) -> dict:
+        """(上下文+问题) → prompt → model → 纯文本"""
+        answer_chain = (
+            RunnableLambda(lambda s: {"context": s["context"], "question": s["question"]})
+            | ChatPromptTemplate.from_messages([
+                ("system", SYSTEM_PROMPT),
+                ("human", "上下文:\n{context}\n\n问题: {question}"),
+            ])
+            | model
+            | parser
+        )
+        return {"answer": answer_chain.invoke(state)}
 
-    # ⑤ 生成回答 Chain：(上下文+问题) → prompt → model → 纯文本
-    answer_chain = (
-        RunnableLambda(lambda state: {"context": state["context"], "question": state["question"]})
-        | ChatPromptTemplate.from_messages([
-            ("system", SYSTEM_PROMPT),
-            ("human", "上下文:\n{context}\n\n问题: {question}"),
-        ])
-        | model
-        | parser
-    )
+    # ===== 条件边：判断函数，入参为上一个节点写入后的状态 =====
+    def route_permission(state: RAGState) -> str:
+        return "end" if state.get("permission_denied") else "intent"
 
-    # 总装拆为两段：检索三段先行，命中判断后再跑生成两段
-    retrieval_chain = (
-        RunnablePassthrough.assign(embedding=embed_chain)
-        | RunnablePassthrough.assign(hits=search_chain)
-        | RunnablePassthrough.assign(ranked=rerank_chain)
+    def route_action(state: RAGState) -> str:
+        action = state.get("action")
+        if action == "search":
+            return "embed"
+        if action == "direct":
+            return "direct"
+        return "end"  # refuse / clarify 由调用方按固定话术处理
+
+    def route_hits(state: RAGState) -> str:
+        # 无命中直接结束（固定话术），不再触发 LLM 回答调用
+        return "context" if state.get("ranked") else "end"
+
+    # ===== 3. 构建图 =====
+    graph = StateGraph(RAGState)
+    graph.add_node("permission_gate", permission_gate_node)
+    graph.add_node("intent", intent_node)
+    graph.add_node("direct", direct_node)
+    graph.add_node("embed", embed_node)
+    graph.add_node("search", search_node)
+    graph.add_node("rerank", rerank_node)
+    graph.add_node("context", context_node)
+    graph.add_node("answer", answer_node)
+
+    graph.add_edge(START, "permission_gate")
+    graph.add_conditional_edges(
+        "permission_gate", route_permission, {"end": END, "intent": "intent"}
     )
-    generation_chain = (
-        RunnablePassthrough.assign(context=context_chain)
-        | RunnablePassthrough.assign(answer=answer_chain)
+    graph.add_conditional_edges(
+        "intent", route_action, {"end": END, "direct": "direct", "embed": "embed"}
     )
-    return retrieval_chain, generation_chain
+    graph.add_edge("direct", END)
+    graph.add_edge("embed", "search")
+    graph.add_edge("search", "rerank")
+    graph.add_conditional_edges(
+        "rerank", route_hits, {"end": END, "context": "context"}
+    )
+    graph.add_edge("context", "answer")
+    graph.add_edge("answer", END)
+
+    return graph.compile()
 
 
 def rag_chain_query(
     db: Session, query_text: str, api_key: str, model=None, role: str = "employee"
 ) -> QueryResponse:
-    """Chain 入口：先过意图关卡分流，search 分支走五段式检索管道
+    """Graph 入口：执行问答状态图，并把终态映射为 QueryResponse
 
     model 参数仅供测试注入 mock（同时传给意图关卡与回答链）；
     role 为员工时检索排除经理专属文档。
     """
-    # 角色主题门禁：员工提问命中经理专属关键词时直接返回权限不足，不调 LLM
-    if role != ROLE_MANAGER and any(kw in query_text for kw in MANAGER_KEYWORDS):
-        return QueryResponse(response_type="permission_denied", answer=PERMISSION_DENIED_MESSAGE)
+    rag_graph = build_rag_graph(db, api_key, model=model)
 
-    gate = build_intent_gate(api_key, model=model)
-    intent = gate(query_text)
-    action, slots = intent["action"], intent["slots"]
+    # ===== 4. 执行 =====
+    final = rag_graph.invoke({
+        "question": query_text,
+        "role": role,
+    })
 
+    slots = final.get("slots")
+    intent_info = _to_intent_info(slots) if slots is not None else None
+
+    # 角色主题门禁短路
+    if final.get("permission_denied"):
+        return QueryResponse(response_type="permission_denied",
+                             answer=PERMISSION_DENIED_MESSAGE)
+
+    action = final.get("action")
     # 安全风险：固定话术拒绝，不再调用 LLM
     if action == "refuse":
         return QueryResponse(response_type="refusal", answer=REFUSAL_MESSAGE)
@@ -184,64 +277,34 @@ def rag_chain_query(
     # 信息不完整：返回澄清问题 + 部分意图分析，等待用户下轮补充
     if action == "clarify":
         question = (slots.clarification_question
-                    if slots and slots.clarification_question
+                    if slots is not None and slots.clarification_question
                     else "请补充更多信息后重新提问。")
         return QueryResponse(
             response_type="clarification",
             answer=question,
-            intent=_to_intent_info(slots) if slots else None,
+            intent=intent_info,
             clarification_question=question,
         )
 
-    # 无需检索：空上下文直答
-    if action == "direct":
-        direct_chain = (
-            ChatPromptTemplate.from_messages([
-                ("system", SYSTEM_PROMPT),
-                ("human", "问题: {question}"),
-            ])
-            | (model or _build_model(api_key))
-            | StrOutputParser()
-        )
-        answer = direct_chain.invoke({"question": query_text})
-        return QueryResponse(
-            response_type="answer", answer=answer, intent=_to_intent_info(slots)
-        )
+    # search 无命中：固定话术（图中已在 rerank 条件边短路，未调 LLM）
+    if action == "search" and not final.get("ranked"):
+        return QueryResponse(response_type="answer", answer=NO_RESULT_MESSAGE,
+                             intent=intent_info)
 
-    # search：先跑检索三段判断命中，无命中直接固定话术（不调 LLM）
-    search_query = " ".join(slots.search_keywords) if slots and slots.search_keywords else query_text
-    # 员工角色：排除经理专属文档（权限收口在检索层）
-    exclude_ids = None if role == ROLE_MANAGER else manager_doc_ids(db)
-    retrieval_chain, generation_chain = build_rag_chain(
-        db, api_key, model=model, exclude_doc_ids=exclude_ids
-    )
-    state = retrieval_chain.invoke({"question": query_text, "search_query": search_query})
-    
-    ranked = state["ranked"]
-    # 需要检索但知识库完全无命中时，沿用旧链路的固定话术
-    if not ranked:
-        return QueryResponse(
-            response_type="answer",
-            answer="当前知识库中没有相关信息，请先上传文档。",
-            intent=_to_intent_info(slots) if slots else None,
-        )
-    
-    # 命中后再生成回答（上下文→回答两段）
-    result = generation_chain.invoke(state)
-
+    # direct / search 命中：正常回答
     sources = [
         SourceInfo(
             chunk_id=c.id,
             content_snippet=c.content[:200],
             document_name=c.document.filename if c.document else "未知",
         )
-        for c in ranked[:3]
+        for c in (final.get("ranked") or [])[:3]
     ]
     return QueryResponse(
         response_type="answer",
-        answer=result["answer"],
+        answer=final.get("answer", ""),
         sources=sources,
-        intent=_to_intent_info(slots) if slots else None,
+        intent=intent_info,
     )
 
 

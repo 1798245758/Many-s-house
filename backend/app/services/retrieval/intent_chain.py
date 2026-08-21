@@ -7,6 +7,7 @@
 任一阶段失败均降级为"以原问题作关键词走检索"，保证可用性优先。
 """
 import logging
+from typing import Literal
 
 from langchain.chat_models import init_chat_model
 from langchain_core.prompts import ChatPromptTemplate
@@ -40,7 +41,10 @@ SLOT_PROMPT = (
 
 
 class ClassifyResult(BaseModel):
-    action: str = Field(description="refuse|clarify|direct|search")
+    # Literal 约束：LLM 输出非法取值时结构化解析失败，自动走降级路径
+    action: Literal["refuse", "clarify", "direct", "search"] = Field(
+        description="动作类型"
+    )
     risk_reason: str = ""
 
 

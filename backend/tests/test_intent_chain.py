@@ -39,6 +39,17 @@ def test_search_action_extracts_keywords():
     assert out["slots"].search_keywords == ["员工", "休假", "制度"]
 
 
+def test_clarify_action_extracts_question():
+    from app.services.retrieval.intent_chain import ClassifyResult, SlotResult
+    slots = SlotResult(task="制度咨询", entities=[], time="", risk_note="",
+                       search_keywords=[], clarification_question="您想了解哪个部门的制度？")
+    model = _mock_model(ClassifyResult(action="clarify", risk_reason=""), slots)
+    gate = build_intent_gate(api_key="sk-test", model=model)
+    out = gate("说说那个制度")
+    assert out["action"] == "clarify"
+    assert out["slots"].clarification_question == "您想了解哪个部门的制度？"
+
+
 def test_classify_failure_degrades_to_search():
     model = MagicMock()
     model.with_structured_output.return_value.side_effect = RuntimeError("LLM 挂了")

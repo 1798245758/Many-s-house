@@ -31,6 +31,7 @@ from app.services.retrieval.intent_chain import build_intent_gate
 from app.services.embedding import embed_text, EMBEDDING_DIM
 from app.services import vector_store
 from app.services.role import ROLE_MANAGER, manager_doc_ids
+from app.config import MANAGER_KEYWORDS
 from app.schemas.query import SourceInfo, QueryResponse, IntentInfo
 
 # 系统提示：企业场景下有上下文只依据上下文作答；无上下文时闲聊可自然回应
@@ -45,6 +46,9 @@ SYSTEM_PROMPT = (
 
 # 意图关卡命中安全风险时的固定拒绝话术（不再调用 LLM）
 REFUSAL_MESSAGE = "抱歉，我无法回答该问题。请提出与企业知识库相关的问题。"
+
+# 员工提问命中经理专属主题时的固定话术（不再调用 LLM）
+PERMISSION_DENIED_MESSAGE = "该问题涉及经理专属内容，当前员工权限不足，无法提供相关信息。"
 
 
 def _build_model(api_key: str):
@@ -165,6 +169,10 @@ def rag_chain_query(
     model 参数仅供测试注入 mock（同时传给意图关卡与回答链）；
     role 为员工时检索排除经理专属文档。
     """
+    # 角色主题门禁：员工提问命中经理专属关键词时直接返回权限不足，不调 LLM
+    if role != ROLE_MANAGER and any(kw in query_text for kw in MANAGER_KEYWORDS):
+        return QueryResponse(response_type="permission_denied", answer=PERMISSION_DENIED_MESSAGE)
+
     gate = build_intent_gate(api_key, model=model)
     intent = gate(query_text)
     action, slots = intent["action"], intent["slots"]

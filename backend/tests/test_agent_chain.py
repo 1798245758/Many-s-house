@@ -55,3 +55,22 @@ def test_search_no_hits_returns_empty_notice(db_session):
     assert resp.intent.task == "制度咨询"
     # 无命中时不应触发 LLM 回答调用（model 本体未被当函数调用）
     model.assert_not_called()
+
+
+def test_employee_manager_topic_returns_permission_denied():
+    """员工提问命中经理关键词：确定性门禁短路，不调任何 LLM"""
+    model = _mock_model("search", task="培训咨询", search_keywords=["运营经理", "培训"])
+    resp = rag_chain_query(None, "运营经理是怎么培训的？", "sk-test", model=model)
+    assert resp.response_type == "permission_denied"
+    assert "权限不足" in resp.answer
+    # 门禁在意图关卡之前：意图链与回答链均未触发
+    model.with_structured_output.assert_not_called()
+    model.assert_not_called()
+
+
+def test_manager_same_question_not_blocked():
+    """经理问同样的问题不被门禁拦截，正常进入意图链"""
+    model = _mock_model("direct", task="培训咨询")
+    resp = rag_chain_query(None, "运营经理是怎么培训的？", "sk-test", model=model, role="manager")
+    assert resp.response_type == "answer"
+    assert resp.answer == "直答内容"

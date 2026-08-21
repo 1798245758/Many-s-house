@@ -95,6 +95,12 @@ export default function Chat() {
           <div className="answer-text" style={{color:'#b91c1c'}}>{result.answer}</div>
         </div>
       )}
+      {result && type === 'permission_denied' && (
+        <div className="card" style={{marginTop:20,border:'1px solid #f59e0b',background:'#fffbeb'}}>
+          <h3>🔒 权限不足</h3>
+          <div className="answer-text" style={{color:'#b45309'}}>{result.answer}</div>
+        </div>
+      )}
       {result && type === 'answer' && (
         <div className="card" style={{marginTop:20}}>
           <IntentTags intent={result.intent} />

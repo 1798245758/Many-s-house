@@ -16,8 +16,8 @@ class IntentInfo(BaseModel):
     risk_note: str | None = None
 
 class QueryResponse(BaseModel):
-    response_type: str = "answer"            # answer | clarification | refusal
-    answer: str                              # 回答 / 澄清引导语 / 拒绝说明
+    response_type: str = "answer"            # answer | clarification | refusal | permission_denied
+    answer: str                              # 回答 / 澄清引导语 / 拒绝说明 / 权限不足说明
     sources: list[SourceInfo] = []
     intent: IntentInfo | None = None
     clarification_question: str | None = None

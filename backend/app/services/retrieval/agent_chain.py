@@ -6,7 +6,8 @@
       ├─ refuse  → 固定礼貌拒绝话术
       ├─ clarify → 澄清问题 + 部分意图分析
       ├─ direct  → 空上下文直答
-      └─ search  → 五段式管道（一次 invoke）：
+      └─ search  → 先跑检索三段（一次 invoke），无命中直接返回固定话术；
+            有命中再跑生成两段，共五段：
             embed_chain      ① 关键词向量化
             search_chain     ② hybrid_search 混合检索（关键词来自槽位提取）
             rerank_chain     ③ 用 ChromaDB 已存向量算余弦相似度重排
@@ -81,10 +82,15 @@ def _to_intent_info(slots) -> IntentInfo:
 
 
 def build_rag_chain(db: Session, api_key: str, model=None):
-    """构建检索五段式 Chain（仅 search 分支使用）
+    """构建检索五段式 Chain（仅 search 分支使用），拆为两段返回
+
+    返回 (retrieval_chain, answer_chain)：
+    - retrieval_chain  检索三段（向量化→检索→精排），先跑完用于判断是否命中，
+      避免无命中时白白消耗一次 LLM 调用、或 LLM 异常时吞掉固定兑底话术；
+    - answer_chain     生成两段（上下文→回答），命中后才执行。
 
     通过闭包捕获本次请求的 db 会话，使检索逻辑能访问数据库；
-    每次请求构建一个新 Chain，天然适配 FastAPI 的请求级依赖注入。
+    每次请求构建新 Chain，天然适配 FastAPI 的请求级依赖注入。
     model 参数仅供测试注入 mock。
     """
     if model is None:
@@ -134,15 +140,17 @@ def build_rag_chain(db: Session, api_key: str, model=None):
         | parser
     )
 
-    # 总装：assign 把每步产出挂进状态字典，逐级累积，一次 invoke 跑完
-    rag_chain = (
+    # 总装拆为两段：检索三段先行，命中判断后再跑生成两段
+    retrieval_chain = (
         RunnablePassthrough.assign(embedding=embed_chain)
         | RunnablePassthrough.assign(hits=search_chain)
         | RunnablePassthrough.assign(ranked=rerank_chain)
-        | RunnablePassthrough.assign(context=context_chain)
+    )
+    generation_chain = (
+        RunnablePassthrough.assign(context=context_chain)
         | RunnablePassthrough.assign(answer=answer_chain)
     )
-    return rag_chain
+    return retrieval_chain, generation_chain
 
 
 def rag_chain_query(
@@ -187,12 +195,12 @@ def rag_chain_query(
             response_type="answer", answer=answer, intent=_to_intent_info(slots)
         )
 
-    # search：五段式检索管道（检索关键词来自槽位提取，空则用原问题兜底）
+    # search：先跑检索三段判断命中，无命中直接固定话术（不调 LLM）
     search_query = " ".join(slots.search_keywords) if slots and slots.search_keywords else query_text
-    chain = build_rag_chain(db, api_key, model=model)
-    result = chain.invoke({"question": query_text, "search_query": search_query})
-
-    ranked = result["ranked"]
+    retrieval_chain, generation_chain = build_rag_chain(db, api_key, model=model)
+    state = retrieval_chain.invoke({"question": query_text, "search_query": search_query})
+    
+    ranked = state["ranked"]
     # 需要检索但知识库完全无命中时，沿用旧链路的固定话术
     if not ranked:
         return QueryResponse(
@@ -200,6 +208,9 @@ def rag_chain_query(
             answer="当前知识库中没有相关信息，请先上传文档。",
             intent=_to_intent_info(slots) if slots else None,
         )
+    
+    # 命中后再生成回答（上下文→回答两段）
+    result = generation_chain.invoke(state)
 
     sources = [
         SourceInfo(

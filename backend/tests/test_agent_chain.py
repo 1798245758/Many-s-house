@@ -53,3 +53,5 @@ def test_search_no_hits_returns_empty_notice(db_session):
     assert resp.response_type == "answer"
     assert resp.answer == "当前知识库中没有相关信息，请先上传文档。"
     assert resp.intent.task == "制度咨询"
+    # 无命中时不应触发 LLM 回答调用（model 本体未被当函数调用）
+    model.assert_not_called()

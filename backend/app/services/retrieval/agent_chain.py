@@ -30,6 +30,7 @@ from app.services.retrieval.searcher import hybrid_search
 from app.services.retrieval.intent_chain import build_intent_gate
 from app.services.embedding import embed_text, EMBEDDING_DIM
 from app.services import vector_store
+from app.services.role import ROLE_MANAGER, manager_doc_ids
 from app.schemas.query import SourceInfo, QueryResponse, IntentInfo
 
 # 系统提示：企业场景下有上下文只依据上下文作答；无上下文时闲聊可自然回应
@@ -81,13 +82,15 @@ def _to_intent_info(slots) -> IntentInfo:
     )
 
 
-def build_rag_chain(db: Session, api_key: str, model=None):
+def build_rag_chain(db: Session, api_key: str, model=None, exclude_doc_ids: list[int] | None = None):
     """构建检索五段式 Chain（仅 search 分支使用），拆为两段返回
 
     返回 (retrieval_chain, answer_chain)：
     - retrieval_chain  检索三段（向量化→检索→精排），先跑完用于判断是否命中，
       避免无命中时白白消耗一次 LLM 调用、或 LLM 异常时吞掉固定兑底话术；
     - answer_chain     生成两段（上下文→回答），命中后才执行。
+
+    exclude_doc_ids：员工角色时传入经理专属文档 ID，检索层排除。
 
     通过闭包捕获本次请求的 db 会话，使检索逻辑能访问数据库；
     每次请求构建新 Chain，天然适配 FastAPI 的请求级依赖注入。
@@ -100,9 +103,10 @@ def build_rag_chain(db: Session, api_key: str, model=None):
     # ① 关键词向量化 Chain：检索关键词串 → 768维查询向量
     embed_chain = RunnableLambda(lambda state: embed_query(state["search_query"]))
 
-    # ② 检索 Chain：向量+文本混合检索（关键词来自意图关卡槽位提取）
+    # ② 检索 Chain：向量+文本混合检索（关键词来自意图关卡槽位提取，按角色排除不可见文档）
     def do_search(state: dict) -> list:
-        return hybrid_search(db, state["embedding"], state["search_query"], top_k=10)
+        return hybrid_search(db, state["embedding"], state["search_query"], top_k=10,
+                             exclude_doc_ids=exclude_doc_ids)
 
     search_chain = RunnableLambda(do_search)
 
@@ -154,11 +158,12 @@ def build_rag_chain(db: Session, api_key: str, model=None):
 
 
 def rag_chain_query(
-    db: Session, query_text: str, api_key: str, model=None
+    db: Session, query_text: str, api_key: str, model=None, role: str = "employee"
 ) -> QueryResponse:
     """Chain 入口：先过意图关卡分流，search 分支走五段式检索管道
 
-    model 参数仅供测试注入 mock（同时传给意图关卡与回答链）。
+    model 参数仅供测试注入 mock（同时传给意图关卡与回答链）；
+    role 为员工时检索排除经理专属文档。
     """
     gate = build_intent_gate(api_key, model=model)
     intent = gate(query_text)
@@ -197,7 +202,11 @@ def rag_chain_query(
 
     # search：先跑检索三段判断命中，无命中直接固定话术（不调 LLM）
     search_query = " ".join(slots.search_keywords) if slots and slots.search_keywords else query_text
-    retrieval_chain, generation_chain = build_rag_chain(db, api_key, model=model)
+    # 员工角色：排除经理专属文档（权限收口在检索层）
+    exclude_ids = None if role == ROLE_MANAGER else manager_doc_ids(db)
+    retrieval_chain, generation_chain = build_rag_chain(
+        db, api_key, model=model, exclude_doc_ids=exclude_ids
+    )
     state = retrieval_chain.invoke({"question": query_text, "search_query": search_query})
     
     ranked = state["ranked"]
@@ -229,7 +238,7 @@ def rag_chain_query(
 
 
 def generate_answer_via_chain(
-    db: Session, query_text: str, client: DeepSeekClient
+    db: Session, query_text: str, client: DeepSeekClient, role: str = "employee"
 ) -> QueryResponse:
     """兼容旧调用签名的包装函数（复用 Setting 中已存的 API Key）"""
-    return rag_chain_query(db, query_text, client.api_key)
+    return rag_chain_query(db, query_text, client.api_key, role=role)

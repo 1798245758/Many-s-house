@@ -11,6 +11,7 @@ class Document(Base):
     file_size = Column(Integer)
     chunk_count = Column(Integer, default=0)
     status = Column(String, default="pending")  # pending/processing/ready/error
+    visibility = Column(String, default="all")  # all=全员可见 / manager_only=经理专属
     metadata_json = Column(Text)  # 存储元数据JSON
     structure_json = Column(Text)  # 存储结构信息JSON
     created_at = Column(String, server_default=func.datetime('now'))

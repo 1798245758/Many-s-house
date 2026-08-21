@@ -1,9 +1,8 @@
-import math
-import json
 import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.models.chunk import Chunk
+from app.services import vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -56,54 +55,32 @@ def keyword_search(db: Session, query: str, top_k: int = 10) -> list[int]:
     return [cid for cid, _ in scored[:top_k]]
 
 
-def cosine_similarity(vec_a: list[float], vec_b: list[float]) -> float:
-    """计算余弦相似度"""
-    # 验证向量维度
-    if len(vec_a) != len(vec_b):
-        logger.warning(f"向量维度不匹配: {len(vec_a)} vs {len(vec_b)}")
-        return 0.0
-    
-    dot = sum(a * b for a, b in zip(vec_a, vec_b))
-    norm_a = math.sqrt(sum(a * a for a in vec_a))
-    norm_b = math.sqrt(sum(b * b for b in vec_b))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
 def vector_search(db: Session, query_vec: list[float], top_k: int = 10) -> list[tuple[int, float]]:
-    """向量相似度搜索（分批处理）"""
-    scored = []
-    
-    # 分批查询避免内存问题
-    offset = 0
-    while True:
-        chunks = db.query(Chunk).offset(offset).limit(BATCH_SIZE).all()
-        if not chunks:
-            break
-            
-        for c in chunks:
-            if c.embedding:
-                try:
-                    chunk_vec = json.loads(c.embedding)
-                    similarity = cosine_similarity(query_vec, chunk_vec)
-                    if similarity > 0:  # 只保留正相似度的结果
-                        scored.append((c.id, similarity))
-                except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(f"解析向量失败 (chunk_id={c.id}): {e}")
-                    continue
-        
-        offset += BATCH_SIZE
-        # 如果已经获取足够的结果，可以提前退出
-        if len(scored) >= top_k * 2:  # 获取更多结果以便排序
-            break
-    
-    scored.sort(key=lambda x: x[1], reverse=True)
-    return scored[:top_k]
+    """向量相似度搜索（ChromaDB ANN检索）
+
+    Args:
+        db: 保留参数以兼容旧签名，实际不再使用
+        query_vec: 查询向量
+        top_k: 返回条数
+
+    Returns:
+        list[(chunk_id, 余弦相似度)]，按相似度降序
+    """
+    results = vector_store.query(query_vec, top_k=top_k)
+    if not results:
+        logger.info("ChromaDB向量检索无结果（向量库可能为空或故障）")
+    return results
 
 
-def hybrid_search(db: Session, query_vec: list[float], query_text: str, top_k: int = 10) -> list[Chunk]:
-    """混合搜索：结合关键词搜索和向量搜索"""
+def hybrid_search(db: Session, query_vec: list[float], query_text: str, top_k: int = 10,
+                  exclude_doc_ids: list[int] | None = None) -> list[Chunk]:
+    """混合搜索：结合关键词搜索和向量搜索
+
+    exclude_doc_ids：需排除的文档 ID（员工角色排除经理专属文档），
+    在关键词/向量/无命中兜底三条路径统一生效。
+    """
+    excluded = set(exclude_doc_ids or [])
+
     # 获取关键词搜索结果
     keyword_ids = keyword_search(db, query_text, top_k=top_k)
     
@@ -115,10 +92,14 @@ def hybrid_search(db: Session, query_vec: list[float], query_text: str, top_k: i
     all_ids = list(dict.fromkeys(keyword_ids + vector_ids))[:top_k]
     
     if not all_ids:
-        chunks = db.query(Chunk).order_by(Chunk.id.desc()).limit(top_k).all()
+        chunks = db.query(Chunk).order_by(Chunk.id.desc()).limit(top_k * 3).all()
+        if excluded:
+            chunks = [c for c in chunks if c.document_id not in excluded][:top_k]
         return chunks
     
     chunks = db.query(Chunk).filter(Chunk.id.in_(all_ids)).all()
+    if excluded:
+        chunks = [c for c in chunks if c.document_id not in excluded]
     id_order = {cid: i for i, cid in enumerate(all_ids)}
     chunks.sort(key=lambda c: id_order.get(c.id, len(all_ids)))
     return chunks[:top_k]

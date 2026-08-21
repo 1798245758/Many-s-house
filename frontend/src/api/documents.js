@@ -1,4 +1,4 @@
-import { get, del, uploadFile } from './index'
+import { get, del, patch, uploadFile } from './index'
 export function getDocuments(page = 1, pageSize = 10, search = '') {
   const params = new URLSearchParams({ page, page_size: pageSize, search })
   return get(`/api/documents?${params}`)
@@ -16,3 +16,4 @@ export function replaceDocument(id, file) {
   return uploadFile(`/api/documents/${id}`, fd, 'PUT')
 }
 export function deleteDocument(id) { return del(`/api/documents/${id}`) }
+export function updateVisibility(id, visibility) { return patch(`/api/documents/${id}/visibility`, { visibility }) }

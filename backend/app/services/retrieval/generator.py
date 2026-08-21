@@ -18,9 +18,10 @@ def parse_embedding(raw: str | bytes) -> list[float]:
     return json.loads(raw)
 
 
-def generate_answer(db: Session, query_text: str, client: DeepSeekClient) -> QueryResponse:
+def generate_answer(db: Session, query_text: str, client: DeepSeekClient,
+                    exclude_doc_ids: list[int] | None = None) -> QueryResponse:
     query_vec = embed_query(query_text)
-    chunks = hybrid_search(db, query_vec, query_text, top_k=10)
+    chunks = hybrid_search(db, query_vec, query_text, top_k=10, exclude_doc_ids=exclude_doc_ids)
     if not chunks:
         return QueryResponse(answer="当前知识库中没有相关信息，请先上传文档。", sources=[])
     context = "\n\n".join(c.content for c in chunks)

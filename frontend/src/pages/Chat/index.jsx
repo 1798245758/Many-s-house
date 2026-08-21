@@ -12,7 +12,7 @@ function IntentTags({ intent }) {
     <div style={{marginBottom:10}}>
       <small style={{color:'#666',marginRight:8}}>意图分析:</small>
       <span style={{...tagBase,background:'#e6f0ff',color:'#1a56db'}}>任务: {intent.task}</span>
-      {intent.entities.map((e, i) => (
+      {(intent.entities || []).map((e, i) => (
         <span key={i} style={{...tagBase,background:'#f0f0f0',color:'#333'}}>{e}</span>
       ))}
       {intent.time && <span style={{...tagBase,background:'#e6fff0',color:'#0a7a4b'}}>时间: {intent.time}</span>}
@@ -83,7 +83,7 @@ export default function Chat() {
           <button
             className="btn"
             style={{marginTop:10}}
-            onClick={() => setQuestion(result.clarification_question || '')}
+            onClick={() => setQuestion(result.clarification_question || result.answer || '')}
           >
             补充后重新提问
           </button>

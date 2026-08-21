@@ -60,9 +60,9 @@ def _migrate_documents_visibility(engine):
             conn.execute(text(
                 "ALTER TABLE documents ADD COLUMN visibility TEXT DEFAULT 'all'"
             ))
-        # 回填：文件名含经理关键词的存量文档标为经理专属（幂等）
-        for kw in MANAGER_KEYWORDS:
-            conn.execute(text(
-                "UPDATE documents SET visibility='manager_only' "
-                "WHERE filename LIKE :pat AND visibility != 'manager_only'"
-            ), {"pat": f"%{kw}%"})
+            # 回填仅在首次加列时执行一次，避免覆盖经理后续的手动切换
+            for kw in MANAGER_KEYWORDS:
+                conn.execute(text(
+                    "UPDATE documents SET visibility='manager_only' "
+                    "WHERE filename LIKE :pat AND visibility != 'manager_only'"
+                ), {"pat": f"%{kw}%"})

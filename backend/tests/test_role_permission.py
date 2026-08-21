@@ -90,3 +90,92 @@ def test_hybrid_search_fallback_excludes_manager_docs(db_session):
     ids = [c.id for c in chunks]
     assert c_mgr.id not in ids
     assert c_all.id in ids
+
+
+def test_migrate_visibility_on_legacy_db(tmp_path):
+    """存量库（无 visibility 列）：init_db 补列并按关键词回填；二次执行不覆盖手动切换"""
+    import sqlite3
+    from sqlalchemy import text
+    from app.database import init_db, get_engine, reset_engine
+
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE documents (id INTEGER PRIMARY KEY, filename TEXT, "
+                 "file_type TEXT, file_size INTEGER, status TEXT, chunk_count INTEGER)")
+    conn.execute("INSERT INTO documents (filename, file_type, file_size, status, chunk_count) "
+                 "VALUES ('运营经理课件.docx','docx',1,'ready',0)")
+    conn.execute("INSERT INTO documents (filename, file_type, file_size, status, chunk_count) "
+                 "VALUES ('员工手册.docx','docx',1,'ready',0)")
+    conn.commit()
+    conn.close()
+
+    try:
+        init_db(str(db_path))
+        engine = get_engine(str(db_path))
+        with engine.connect() as c:
+            rows = dict(c.execute(text("SELECT filename, visibility FROM documents")).fetchall())
+        assert rows["运营经理课件.docx"] == "manager_only"
+        assert rows["员工手册.docx"] == "all"
+
+        # 经理手动改为 all 后，再次 init_db（模拟重启）不得覆盖
+        with engine.begin() as c:
+            c.execute(text("UPDATE documents SET visibility='all' "
+                           "WHERE filename='运营经理课件.docx'"))
+        init_db(str(db_path))
+        with engine.connect() as c:
+            vis = c.execute(text("SELECT visibility FROM documents "
+                                 "WHERE filename='运营经理课件.docx'")).scalar()
+        assert vis == "all"
+    finally:
+        reset_engine()
+
+
+def test_api_role_permission():
+    """API 级：X-Role 缺省/非法降级员工；员工列表过滤 + 写操作拒绝；经理全量可见"""
+    from fastapi.testclient import TestClient
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from app.main import app
+    from app.database import Base, get_db
+
+    # 内存库需 StaticPool 共享单连接，否则每个新连接都是独立的空库
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+
+    def override_get_db():
+        db = Session()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    seed = Session()
+    seed.add(Document(filename="员工手册.md", file_type="md", file_size=1, status="ready", visibility="all"))
+    seed.add(Document(filename="运营经理课件.md", file_type="md", file_size=1, status="ready", visibility="manager_only"))
+    seed.commit()
+    seed.close()
+
+    try:
+        client = TestClient(app)
+        # 员工：列表过滤经理专属，total 同步
+        data = client.get("/api/documents", headers={"X-Role": "employee"}).json()["data"]
+        assert data["total"] == 1
+        assert all(d["visibility"] != "manager_only" for d in data["items"])
+        # 经理：全量可见
+        assert client.get("/api/documents", headers={"X-Role": "manager"}).json()["data"]["total"] == 2
+        # 缺省/非法请求头降级员工
+        assert client.get("/api/documents").json()["data"]["total"] == 1
+        assert client.get("/api/documents", headers={"X-Role": "admin"}).json()["data"]["total"] == 1
+        # 员工写操作被拒
+        assert client.delete("/api/documents/1", headers={"X-Role": "employee"}).json()["code"] == "PERMISSION_DENIED"
+        resp = client.patch("/api/documents/1/visibility", json={"visibility": "all"}, headers={"X-Role": "employee"})
+        assert resp.json()["code"] == "PERMISSION_DENIED"
+        # 经理可切换可见性
+        resp = client.patch("/api/documents/1/visibility", json={"visibility": "manager_only"}, headers={"X-Role": "manager"})
+        assert resp.json()["code"] == "SUCCESS"
+    finally:
+        app.dependency_overrides.clear()

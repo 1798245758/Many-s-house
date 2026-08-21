@@ -14,7 +14,7 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
 def _is_image(file_type: str) -> bool:
     return f".{file_type}" in IMAGE_EXTENSIONS
 
-def ingest_document(db: Session, file_path: Path, filename: str, file_type: str, deepseek_client=None, doc_id: int = None):
+def ingest_document(db: Session, file_path: Path, filename: str, file_type: str, deepseek_client=None, doc_id: int = None, visibility: str | None = None):
     if doc_id:
         doc = db.query(Document).filter(Document.id == doc_id).first()
         doc.filename = filename
@@ -24,9 +24,14 @@ def ingest_document(db: Session, file_path: Path, filename: str, file_type: str,
         doc.chunk_count = 0
         doc.metadata_json = None
         doc.structure_json = None
+        if visibility is not None:
+            doc.visibility = visibility
         db.commit()
     else:
         doc = Document(filename=filename, file_type=file_type, file_size=file_path.stat().st_size, status="processing")
+        # 可见性随首次提交落库，避免处理窗口期内经理文档对员工可见可检索
+        if visibility is not None:
+            doc.visibility = visibility
         db.add(doc)
         db.commit()
         db.refresh(doc)

@@ -36,8 +36,8 @@ def _process_one(file: UploadFile, db: Session):
             shutil.copyfileobj(file.file, f)
     except Exception:
         raise Exception("文件保存失败")
-    doc = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."))
-    doc.visibility = detect_visibility(file.filename or "")
+    doc = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."),
+                          visibility=detect_visibility(file.filename or ""))
     db.commit()
     return DocumentOut.model_validate(doc).model_dump()
 
@@ -149,7 +149,9 @@ def replace_document(
         return ApiResponse(code="SERVER_ERROR", message="文件保存失败")
 
     try:
-        updated = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."), doc_id=doc_id)
+        # 可见性随新文件名在首次提交时落库，避免窗口期泄露
+        updated = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."), doc_id=doc_id,
+                                  visibility=detect_visibility(file.filename or ""))
     except ValueError as e:
         return ApiResponse(code="PARAM_ERROR", message=str(e))
     except Exception as e:
@@ -157,8 +159,6 @@ def replace_document(
         traceback.print_exc()
         return ApiResponse(code="DOC_PROCESS_ERROR", message=str(e))
 
-    # 替换后按新文件名重新判定可见性
-    updated.visibility = detect_visibility(file.filename or "")
     db.commit()
     return ApiResponse(code="SUCCESS", message="文档已更新", data=DocumentOut.model_validate(updated).model_dump())
 

@@ -2,6 +2,32 @@
 
 基于 **FastAPI + LangChain/LangGraph + ChromaDB + React** 的企业知识库检索增强生成（RAG）问答系统。支持多格式文档入库、意图识别、多跳检索、证据校验、多轮记忆与检索错误诊断。
 
+## 界面预览
+
+**角色选择**（员工 / 经理双角色门禁）
+
+![角色选择](docs/images/role-select.png)
+
+**首页**
+
+![首页](docs/images/home.png)
+
+**文档管理**（多格式文档入库与异步进度）
+
+![文档管理](docs/images/documents.png)
+
+**智能问答**（多跳检索 + 证据校验）
+
+![智能问答](docs/images/chat.png)
+
+**历史记录**（带来源引用的问答回溯）
+
+![历史记录](docs/images/history.png)
+
+**错误诊断 Agent**（经理专属）
+
+![错误诊断](docs/images/diagnosis.png)
+
 ## 功能特性
 
 - **离线入库链路**：文档上传 → 文本抽取（PDF/Word/PPT/Excel/Markdown，含 OCR 兜底）→ 分块 → BGE 向量化 → ChromaDB 索引

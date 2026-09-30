@@ -6,7 +6,10 @@ python-multipart==0.0.19
 pdfplumber==0.11.4
 httpx==0.28.1
 python-dotenv==1.0.1
-langchain>=0.1.0
+langchain>=1.0.0
+langchain-openai>=1.0.0
+langgraph>=1.0.0
+langgraph-checkpoint-sqlite>=3.1.1
 langchain-community>=0.0.1
 pypdf>=3.17.0
 unstructured>=0.10.0
@@ -14,3 +17,5 @@ docx2txt>=0.8.0
 openpyxl>=3.1.2
 python-pptx>=0.6.21
 sentence-transformers>=2.2.0
+chromadb==1.5.9
+pytesseract>=0.3.10

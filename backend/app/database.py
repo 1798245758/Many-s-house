@@ -44,6 +44,7 @@ def init_db(db_path=None):
     engine = get_engine(db_path)
     Base.metadata.create_all(bind=engine)
     _migrate_documents_visibility(engine)
+    _migrate_documents_task_id(engine)
 
 
 def _migrate_documents_visibility(engine):
@@ -66,3 +67,14 @@ def _migrate_documents_visibility(engine):
                     "UPDATE documents SET visibility='manager_only' "
                     "WHERE filename LIKE :pat AND visibility != 'manager_only'"
                 ), {"pat": f"%{kw}%"})
+
+
+def _migrate_documents_task_id(engine):
+    """存量库迁移：documents 补 task_id 列（异步任务关联），列已存在则跳过"""
+    inspector = inspect(engine)
+    if not inspector.has_table("documents"):
+        return
+    columns = {c["name"] for c in inspector.get_columns("documents")}
+    if "task_id" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE documents ADD COLUMN task_id TEXT"))

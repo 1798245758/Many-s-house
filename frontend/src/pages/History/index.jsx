@@ -11,8 +11,7 @@ export default function History() {
   const [error, setError] = useState('')
 
   const fetch = useCallback(async () => {
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try { setHistories(await getHistories()) }
     catch (e) { setError(e.message) }
     finally { setLoading(false) }
@@ -28,24 +27,34 @@ export default function History() {
   return (
     <div>
       <h1 className="page-title">历史记录</h1>
+      <p className="page-subtitle">你的查询足迹，可随时回溯或重新提问</p>
       {error && <ErrorMessage message={error} />}
-      {loading ? <Loading /> : histories.length === 0 ? (
-        <p style={{color:'#999',textAlign:'center',padding:'40px 0'}}>暂无历史记录</p>
-      ) : histories.map(h => (
-        <div key={h.id} className="card">
-          <div style={{display:'flex',justifyContent:'space-between'}}>
-            <div style={{flex:1}}>
-              <strong>Q: {h.query_text}</strong>
-              <p style={{marginTop:8,whiteSpace:'pre-wrap',color:'#555'}}>{h.answer_text.slice(0, 300)}{h.answer_text.length > 300 ? '...' : ''}</p>
-              <small style={{color:'#999'}}>{h.created_at}</small>
-            </div>
-              <div style={{display:'flex',gap:8,flexShrink:0}}>
-                <button className="btn btn-primary" style={{height:'fit-content'}} onClick={() => navigate(`/chat?q=${encodeURIComponent(h.query_text)}`)}>重新提问</button>
-                <button className="btn btn-danger" style={{height:'fit-content'}} onClick={() => handleDelete(h.id)}>删除</button>
-              </div>
-          </div>
+      {loading ? <Loading text="加载历史" /> : histories.length === 0 ? (
+        <div className="empty-state">
+          <div className="icon">🕘</div>
+          <p>暂无历史记录</p>
         </div>
-      ))}
+      ) : (
+        <div className="stack stagger">
+          {histories.map(h => (
+            <div key={h.id} className="card card-hover" style={{ marginBottom: 0 }}>
+              <div className="row-between" style={{ alignItems: 'flex-start' }}>
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                  <strong style={{ color: 'var(--primary)' }}>Q: {h.query_text}</strong>
+                  <p className="muted" style={{ marginTop: 8, whiteSpace: 'pre-wrap', fontSize: '0.92rem' }}>
+                    {h.answer_text.slice(0, 300)}{h.answer_text.length > 300 ? '...' : ''}
+                  </p>
+                  <small className="muted">🕒 {h.created_at}</small>
+                </div>
+                <div className="row" style={{ gap: 8, flexShrink: 0 }}>
+                  <button className="btn btn-sm btn-primary" onClick={() => navigate(`/chat?q=${encodeURIComponent(h.query_text)}`)}>重新提问</button>
+                  <button className="btn btn-sm btn-danger" onClick={() => handleDelete(h.id)}>删除</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

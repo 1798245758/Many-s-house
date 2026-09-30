@@ -67,6 +67,56 @@ def test_chunk_preserves_heading():
     assert len(chunks) >= 1
 
 
+def test_chunk_paragraph_boundary_not_crossed_when_sentences_small():
+    """段落优先：块上限够装单段时，跨段落合并不得混排两段的句子"""
+    p1 = "第一条规定。" * 5    # 30 字符/段；两段合计 60 > 40 而每段 ≤ 40 → 应恰好两段两块；
+    p2 = "第二条规定。" * 5    # 若按句全局混排，第二段首句会被并入块1，故用块1内容相等断言兜住
+    chunks = semantic_chunk(p1 + "\n\n" + p2, max_tokens=40, overlap_tokens=0)
+    assert len(chunks) == 2
+    assert "第二条" not in chunks[0]
+    assert chunks[0] == p1
+    assert chunks[1] == p2
+
+
+def test_chunk_oversized_paragraph_falls_back_to_sentence_split():
+    """段落切出来太大 → 降级按句子切，句子不被拦腰截断"""
+    para = "短句一。短句二。短句三。短句四。"  # 16 字符无段落分隔符，单句 4 字符 ≤ max
+    chunks = semantic_chunk(para, max_tokens=15, overlap_tokens=0)
+    assert len(chunks) == 2
+    assert all(len(c) <= 15 for c in chunks)
+    assert all(c.endswith("。") for c in chunks)
+    assert "".join(chunks) == para
+
+
+def test_chunk_no_punctuation_falls_back_to_clause_then_char():
+    """无句号的长文本：先按子句标点（，）切，每个块带逗号边界而非硬切"""
+    text = "甲条款内容，" * 4  # 24 字符全段无句号；按逗号切得 2×12 字符且前块以“，”结尾，字符硬切则得到 14+10 且无逗号边界
+    chunks = semantic_chunk(text, max_tokens=14, overlap_tokens=0)
+    assert len(chunks) == 2
+    assert chunks[0].endswith("，")
+    assert all(len(c) <= 14 for c in chunks)
+
+
+def test_chunk_hard_cut_when_no_separator_available():
+    """全无任何分隔符 → 字符级兜底硬切，内容无丢失"""
+    text = "字" * 130  # 无标点无换行：任何一级分隔符都切不开，必须字符硬切 50+50+30，拼接可还原
+    chunks = semantic_chunk(text, max_tokens=50, overlap_tokens=0)
+    assert all(len(c) <= 50 for c in chunks)
+    assert len(chunks) == 3
+    assert "".join(chunks) == text
+
+
+def test_chunk_overlap_prepended_to_next_chunk():
+    """重叠：下一块开头携带上一块结尾的重叠文本，且块仍不超限"""
+    p1 = "甲" * 30  # 第一段：重叠后块2 = 首块末10字符 + 第二段，长度 35 ≤ 40；
+    p2 = "乙" * 25  # 若未做重叠则块2 长仅 25，前缀+长度联合断言可精确识别重叠生效
+    chunks = semantic_chunk(p1 + "\n\n" + p2, max_tokens=40, overlap_tokens=10)
+    assert len(chunks) == 2
+    assert chunks[1].startswith("甲" * 10)
+    assert chunks[1] == "甲" * 10 + p2
+    assert all(len(c) <= 40 for c in chunks)
+
+
 def test_extract_xmind(tmp_path):
     import zipfile, json
     f = tmp_path / "test.xmind"

@@ -1,3 +1,11 @@
+import os
+
+# 设置HuggingFace镜像（国内加速）
+# 必须在导入sentence_transformers/huggingface_hub之前设置，否则镜像不生效
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+# hf-mirror不支持xet协议，禁用以避免CAS 401错误
+os.environ.setdefault('HF_HUB_DISABLE_XET', '1')
+
 from sentence_transformers import SentenceTransformer
 from functools import lru_cache
 import struct
@@ -5,16 +13,12 @@ import logging
 import hashlib
 import threading
 import time
-import os
 
 logger = logging.getLogger(__name__)
 
 _model = None
 _model_loading = False
 _model_lock = threading.Lock()
-
-# 设置HuggingFace镜像（国内加速）
-os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 def get_model():
     """获取BGE模型实例（单例模式，带超时）"""

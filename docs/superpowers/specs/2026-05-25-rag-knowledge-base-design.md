@@ -172,7 +172,7 @@ settings (
     - TXT  → 直接读取
     - MD   → 转纯文本
   → 文档清洗（cleaner）：去多余空行、特殊符号
-  → 语义切分（chunker）：按段落/标题边界切分，每块 500-1000 token
+  → 语义切分（chunker）：按句子边界切分，每块 500-1000 token，重叠 100 token 保持上下文连续
   → 向量化（embedder）：调用 DeepSeek Embedding API
   → 索引构建（indexer）：写入 chunks 表 + FTS5 全文索引
   → 更新 documents.status = ready
@@ -302,5 +302,5 @@ brainstorming（本阶段 ✓）
 | 架构方案 | 分层单体（方案 A） |
 | 个人信息 | 基本资料 + API Key + 主题切换 |
 | 关于数据 | 数据说明 + 隐私声明 + 使用条款 |
-| Chunking 策略 | 语义切分（按段落/标题边界） |
+| Chunking 策略 | 语义切分（按句子边界，500-1000 token，边界重叠100 token） |
 | 检索策略 | 混合检索（向量 + FTS5 关键词） |

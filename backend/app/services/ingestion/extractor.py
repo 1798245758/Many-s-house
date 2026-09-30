@@ -45,6 +45,7 @@ def extract_document(file_path: Path) -> dict:
         "structure": result.structure,
         "source": result.source,
         "file_type": result.file_type,
+        "page_content": result.page_content,
     }
 
 

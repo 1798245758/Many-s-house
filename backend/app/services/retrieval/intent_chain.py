@@ -66,6 +66,7 @@ class IntentState(TypedDict, total=False):
     action: str
     risk_reason: str
     slots: SlotResult
+    degraded: bool
 
 
 def fallback_slots(question: str) -> SlotResult:
@@ -108,7 +109,7 @@ def build_intent_gate(api_key: str, model=None):
         except Exception as e:
             logger.warning(f"意图分类失败，降级为检索: {e}")
             return {"action": "search", "risk_reason": "",
-                    "slots": fallback_slots(state["question"])}
+                    "slots": fallback_slots(state["question"]), "degraded": True}
 
     def slot_node(state: IntentState) -> dict:
         """第二阶段：槽位提取；失败用原问题兜底关键词"""
@@ -120,7 +121,7 @@ def build_intent_gate(api_key: str, model=None):
             return {"slots": slots}
         except Exception as e:
             logger.warning(f"槽位提取失败，用原问题兜底: {e}")
-            return {"slots": fallback_slots(state["question"])}
+            return {"slots": fallback_slots(state["question"]), "degraded": True}
 
     # ===== 条件边：判断函数，入参为上一个节点写入后的状态 =====
     def route_classify(state: IntentState) -> str:
@@ -145,6 +146,7 @@ def build_intent_gate(api_key: str, model=None):
             "risk_reason": out.get("risk_reason", ""),
             "slots": out.get("slots"),  # refuse 或异常路径下可能为 None
             "question": question,
+            "degraded": out.get("degraded", False),
         }
 
     return intent_gate

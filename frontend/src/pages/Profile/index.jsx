@@ -27,66 +27,60 @@ export default function Profile() {
   }, [])
 
   const saveProfile = async () => {
-    setSaving(true)
-    setMessage('')
-    setError('')
-    try {
-      await updateProfile({ nickname, email })
-      setMessage('个人资料已更新')
-    } catch (e) { setError(e.message) }
+    setSaving(true); setMessage(''); setError('')
+    try { await updateProfile({ nickname, email }); setMessage('个人资料已更新') }
+    catch (e) { setError(e.message) }
     finally { setSaving(false) }
   }
 
   const saveSettings = async () => {
-    setSaving(true)
-    setMessage('')
-    setError('')
-    try {
-      await updateSettings({ theme, api_key: apiKey || undefined })
-      setMessage('设置已更新')
-    } catch (e) { setError(e.message) }
+    setSaving(true); setMessage(''); setError('')
+    try { await updateSettings({ theme, api_key: apiKey || undefined }); setMessage('设置已更新') }
+    catch (e) { setError(e.message) }
     finally { setSaving(false) }
   }
 
-  if (loading) return <Loading />
+  if (loading) return <Loading text="加载资料" />
 
   return (
-    <div>
+    <div style={{ maxWidth: 680, margin: '0 auto' }}>
       <h1 className="page-title">个人信息</h1>
-      {message && <div className="card" style={{borderColor:'#38a169',color:'#38a169'}}>{message}</div>}
+      <p className="page-subtitle">管理你的资料、API Key 与界面主题</p>
+      {message && <div className="success-message">✅ {message}</div>}
       {error && <ErrorMessage message={error} />}
 
       <div className="card">
-        <h3 style={{marginBottom:12}}>基本资料</h3>
-        <div style={{marginBottom:12}}>
+        <h3 style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>👤 基本资料</h3>
+        <div style={{ marginBottom: 14 }}>
           <label>昵称</label>
-          <input value={nickname} onChange={e => setNickname(e.target.value)} />
+          <input value={nickname} onChange={e => setNickname(e.target.value)} placeholder="你的昵称" />
         </div>
-        <div style={{marginBottom:12}}>
+        <div style={{ marginBottom: 16 }}>
           <label>邮箱</label>
-          <input value={email} onChange={e => setEmail(e.target.value)} />
+          <input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@company.com" />
         </div>
-        <button className="btn btn-primary" onClick={saveProfile} disabled={saving}>保存</button>
+        <button className="btn btn-primary" onClick={saveProfile} disabled={saving}>{saving ? '保存中...' : '保存资料'}</button>
       </div>
 
       <div className="card">
-        <h3 style={{marginBottom:12}}>API Key 配置</h3>
-        <div style={{marginBottom:12}}>
+        <h3 style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>🔑 API Key 配置</h3>
+        <div style={{ marginBottom: 16 }}>
           <label>DeepSeek API Key</label>
-          <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." />
+          <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." className="mono" />
         </div>
-        <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>保存</button>
+        <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>{saving ? '保存中...' : '保存密钥'}</button>
       </div>
 
       <div className="card">
-        <h3 style={{marginBottom:12}}>主题设置</h3>
-        <div style={{display:'flex',alignItems:'center',gap:16}}>
-          <label style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}>
-            <input type="radio" checked={theme === 'light'} onChange={() => setTheme('light')} style={{width:'auto'}} /> 亮色
-          </label>
-          <label style={{display:'flex',alignItems:'center',gap:4,cursor:'pointer'}}>
-            <input type="radio" checked={theme === 'dark'} onChange={() => setTheme('dark')} style={{width:'auto'}} /> 暗色
-          </label>
+        <h3 style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>🎨 主题设置</h3>
+        <div className="row" style={{ gap: 12 }}>
+          {[{ id: 'light', label: '☀️ 亮色' }, { id: 'dark', label: '🌙 暗色' }].map(t => (
+            <button key={t.id}
+              className={`btn ${theme === t.id ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setTheme(t.id)} style={{ flex: 1 }}>
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
     </div>

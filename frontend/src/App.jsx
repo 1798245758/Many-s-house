@@ -8,6 +8,8 @@ import Documents from './pages/Documents'
 import History from './pages/History'
 import Profile from './pages/Profile'
 import AboutData from './pages/AboutData'
+import Diagnosis from './pages/Diagnosis'
+import Memory from './pages/Memory'
 
 export default function App() {
   // 首次进入未选角色时展示角色选择页（localStorage 已有则直接进入）
@@ -24,6 +26,8 @@ export default function App() {
         <Route path="/history" element={<History />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/about" element={<AboutData />} />
+        <Route path="/diagnosis" element={<Diagnosis />} />
+        <Route path="/memory" element={<Memory />} />
       </Routes>
     </Layout>
   )

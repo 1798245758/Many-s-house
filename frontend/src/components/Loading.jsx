@@ -1,3 +1,8 @@
-export default function Loading() {
-  return <div style={{ textAlign: 'center', padding: '40px' }}><div className="spinner" /></div>
+export default function Loading({ text = '加载中' }) {
+  return (
+    <div className="loading-wrap">
+      <div className="spinner" />
+      <div className="loading-dots muted">{text}<span>.</span><span>.</span><span>.</span></div>
+    </div>
+  )
 }

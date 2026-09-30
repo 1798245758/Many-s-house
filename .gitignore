@@ -7,3 +7,12 @@ backend/data/
 backend/uploads/
 node_modules/
 dist/
+# 金标样本 PDF（大二进制，由 PDF_Example/_fetch*.py 重新生成）
+PDF_Example/*.pdf
+# 知识文档（企业模拟文档，不入库）
+胖东来文档/
+# drawio 临时/备份文件
+.$*
+.idea/
+backend/pytest_out.txt
+backend/test_diag*.db

@@ -11,9 +11,10 @@ from app.models.chunk import Chunk
 from app.models.setting import Setting
 from app.schemas.common import ApiResponse
 from app.schemas.document import DocumentOut
-from app.services.ingestion.pipeline import ingest_document
+from app.services.tasks.runner import submit_task
 from app.services import vector_store
 from app.services.role import get_role, ROLE_MANAGER
+from app.services.retrieval.page_tools import read_page, get_tables
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 ALLOWED_EXTENSIONS = {
@@ -26,7 +27,8 @@ def detect_visibility(filename: str) -> str:
     """文件名含经理关键词的文档自动标为经理专属"""
     return "manager_only" if any(kw in filename for kw in MANAGER_KEYWORDS) else "all"
 
-def _process_one(file: UploadFile, db: Session):
+def _accept_one(file: UploadFile, db: Session):
+    """同步做校验与落盘，入库处理提交为异步任务后立即返回"""
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise ValueError(f"不支持的文件类型: {suffix}")
@@ -36,10 +38,20 @@ def _process_one(file: UploadFile, db: Session):
             shutil.copyfileobj(file.file, f)
     except Exception:
         raise Exception("文件保存失败")
-    doc = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."),
-                          visibility=detect_visibility(file.filename or ""))
+    # 可见性随创建即落库，避免处理窗口期经理文档对员工可见
+    doc = Document(filename=file.filename or "unknown", file_type=suffix.lstrip("."),
+                   file_size=save_path.stat().st_size, status="processing",
+                   visibility=detect_visibility(file.filename or ""))
+    db.add(doc)
     db.commit()
-    return DocumentOut.model_validate(doc).model_dump()
+    db.refresh(doc)
+    task_id = submit_task("doc_ingest", {
+        "doc_id": doc.id, "filename": doc.filename,
+        "file_path": str(save_path), "file_type": doc.file_type,
+    })
+    doc.task_id = task_id
+    db.commit()
+    return {"filename": doc.filename, "document_id": doc.id, "task_id": task_id}
 
 @router.post("/upload", response_model=ApiResponse)
 def upload_documents(
@@ -49,12 +61,11 @@ def upload_documents(
 ):
     if role != ROLE_MANAGER:
         return ApiResponse(code="PERMISSION_DENIED", message="仅经理可上传文档")
-    results = []
+    tasks = []
     errors = []
     for file in files:
         try:
-            data = _process_one(file, db)
-            results.append(data)
+            tasks.append(_accept_one(file, db))
         except ValueError as e:
             errors.append({"filename": file.filename, "message": str(e)})
         except Exception as e:
@@ -63,8 +74,8 @@ def upload_documents(
             errors.append({"filename": file.filename, "message": str(e)})
     return ApiResponse(
         code="SUCCESS" if not errors else "PARTIAL_SUCCESS",
-        message=f"成功 {len(results)} 个，失败 {len(errors)} 个" if errors else "全部上传成功",
-        data={"uploaded": results, "errors": errors},
+        message=f"已提交 {len(tasks)} 个入库任务" + (f"，{len(errors)} 个文件未受理" if errors else ""),
+        data={"tasks": tasks, "errors": errors},
     )
 
 @router.get("", response_model=ApiResponse)
@@ -148,19 +159,28 @@ def replace_document(
     except Exception:
         return ApiResponse(code="SERVER_ERROR", message="文件保存失败")
 
+    # 重置文档字段并提交异步入库任务，可见性随新文件名立即生效避免窗口期泄露
+    doc.filename = file.filename or "unknown"
+    doc.file_type = suffix.lstrip(".")
+    doc.file_size = save_path.stat().st_size
+    doc.status = "processing"
+    doc.chunk_count = 0
+    doc.metadata_json = None
+    doc.structure_json = None
+    doc.visibility = detect_visibility(file.filename or "")
     try:
-        # 可见性随新文件名在首次提交时落库，避免窗口期泄露
-        updated = ingest_document(db, save_path, file.filename or "unknown", suffix.lstrip("."), doc_id=doc_id,
-                                  visibility=detect_visibility(file.filename or ""))
-    except ValueError as e:
-        return ApiResponse(code="PARAM_ERROR", message=str(e))
+        task_id = submit_task("doc_ingest", {
+            "doc_id": doc.id, "filename": doc.filename,
+            "file_path": str(save_path), "file_type": doc.file_type,
+        })
     except Exception as e:
         import traceback
         traceback.print_exc()
         return ApiResponse(code="DOC_PROCESS_ERROR", message=str(e))
-
+    doc.task_id = task_id
     db.commit()
-    return ApiResponse(code="SUCCESS", message="文档已更新", data=DocumentOut.model_validate(updated).model_dump())
+    return ApiResponse(code="SUCCESS", message="文档替换任务已提交",
+                       data={"document_id": doc_id, "task_id": task_id})
 
 
 @router.patch("/{doc_id}/visibility", response_model=ApiResponse)
@@ -181,3 +201,44 @@ def update_visibility(
     doc.visibility = body.visibility
     db.commit()
     return ApiResponse(code="SUCCESS", message="可见性已更新", data=DocumentOut.model_validate(doc).model_dump())
+
+
+def _visible_doc(db: Session, doc_id: int, role: str):
+    """可见性校验：返回 (doc, None) 或 (None, 错误响应)"""
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        return None, ApiResponse(code="NOT_FOUND", message="文档不存在")
+    if role != ROLE_MANAGER and doc.visibility == "manager_only":
+        return None, ApiResponse(code="PERMISSION_DENIED", message="无权访问该文档")
+    return doc, None
+
+
+@router.get("/{doc_id}/pages/{page}", response_model=ApiResponse)
+def read_document_page(
+    doc_id: int,
+    page: int,
+    db: Session = Depends(get_db),
+    role: str = Depends(get_role),
+):
+    """按页码回读原文（citation 跳转 / Agent read_page 工具）"""
+    doc, err = _visible_doc(db, doc_id, role)
+    if err:
+        return err
+    data = read_page(db, doc_id, page)
+    if data is None:
+        return ApiResponse(code="NOT_FOUND", message="该页无正文内容")
+    return ApiResponse(data=data)
+
+
+@router.get("/{doc_id}/tables", response_model=ApiResponse)
+def list_document_tables(
+    doc_id: int,
+    page: int | None = Query(None, ge=1),
+    db: Session = Depends(get_db),
+    role: str = Depends(get_role),
+):
+    """获取文档表格块（Markdown 行列结构，可按页码过滤）"""
+    doc, err = _visible_doc(db, doc_id, role)
+    if err:
+        return err
+    return ApiResponse(data={"items": get_tables(db, doc_id, page)})

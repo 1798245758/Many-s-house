@@ -1,22 +1,65 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { submitQuery } from '../../api/query'
-import Loading from '../../components/Loading'
 import ErrorMessage from '../../components/ErrorMessage'
 
-const tagBase = {display:'inline-block',padding:'2px 8px',borderRadius:12,fontSize:'0.8rem',marginRight:6,marginBottom:4}
+const CONV_ID_KEY = 'conversation_id'
+function getConversationId() {
+  let id = sessionStorage.getItem(CONV_ID_KEY)
+  if (!id) { id = crypto.randomUUID(); sessionStorage.setItem(CONV_ID_KEY, id) }
+  return id
+}
+
+// 各响应类型的呈现样式
+const TYPE_META = {
+  clarification: { label: '需要补充信息', cls: 'tag-warn', icon: '❓' },
+  refusal: { label: '无法回答', cls: 'tag-danger', icon: '⛔' },
+  permission_denied: { label: '权限不足', cls: 'tag-warn', icon: '🔒' },
+  answer: { label: '回答', cls: 'tag-success', icon: '✅' },
+}
 
 function IntentTags({ intent }) {
   if (!intent) return null
   return (
-    <div style={{marginBottom:10}}>
-      <small style={{color:'#666',marginRight:8}}>意图分析:</small>
-      <span style={{...tagBase,background:'#e6f0ff',color:'#1a56db'}}>任务: {intent.task}</span>
-      {(intent.entities || []).map((e, i) => (
-        <span key={i} style={{...tagBase,background:'#f0f0f0',color:'#333'}}>{e}</span>
-      ))}
-      {intent.time && <span style={{...tagBase,background:'#e6fff0',color:'#0a7a4b'}}>时间: {intent.time}</span>}
-      {intent.risk_note && <span style={{...tagBase,background:'#fff3e0',color:'#b45309'}}>风险: {intent.risk_note}</span>}
+    <div className="row" style={{ gap: 6, marginBottom: 10 }}>
+      <span className="tag tag-brand">任务: {intent.task}</span>
+      {(intent.entities || []).map((e, i) => <span key={i} className="tag">{e}</span>)}
+      {intent.time && <span className="tag tag-success">时间: {intent.time}</span>}
+      {intent.risk_note && <span className="tag tag-warn">风险: {intent.risk_note}</span>}
+    </div>
+  )
+}
+
+function BotMessage({ msg, onFillQuestion }) {
+  const meta = TYPE_META[msg.type] || TYPE_META.answer
+  return (
+    <div className="chat-row">
+      <div className="chat-bubble chat-bot" style={{ width: '100%', maxWidth: '88%' }}>
+        <div className="row" style={{ gap: 8, marginBottom: 8 }}>
+          <span className={`tag ${meta.cls}`}>{meta.icon} {meta.label}</span>
+        </div>
+        <IntentTags intent={msg.intent} />
+        <div className="answer-text">{msg.answer}</div>
+        {msg.type === 'clarification' && (
+          <button className="btn btn-sm" style={{ marginTop: 10 }}
+            onClick={() => onFillQuestion(msg.clarification_question || msg.answer || '')}>
+            补充后重新提问
+          </button>
+        )}
+        {(msg.sources || []).length > 0 && (
+          <details style={{ marginTop: 12 }}>
+            <summary>参考来源（{msg.sources.length}）</summary>
+            <div className="stack" style={{ gap: 8, marginTop: 8 }}>
+              {msg.sources.map((s, i) => (
+                <div key={i} className="glass-panel" style={{ padding: '10px 12px', borderRadius: 10 }}>
+                  <small className="muted">📄 {s.document_name}</small>
+                  <p style={{ fontSize: '0.88rem', marginTop: 4 }}>{s.content_snippet}</p>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+      </div>
     </div>
   )
 }
@@ -24,101 +67,85 @@ function IntentTags({ intent }) {
 export default function Chat() {
   const [searchParams] = useSearchParams()
   const [question, setQuestion] = useState('')
-  const [result, setResult] = useState(null)
+  const [messages, setMessages] = useState([])  // {role:'user'|'bot', ...}
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const bottomRef = useRef(null)
 
-  useEffect(() => {
-    const q = searchParams.get('q')
-    if (q) {
-      setQuestion(q)
-      handleAsk(q)
-    }
-  }, [])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
 
-  const handleAsk = async (text) => {
-    setLoading(true)
+  const ask = async (text) => {
+    if (!text.trim() || loading) return
     setError('')
-    setResult(null)
+    setMessages(m => [...m, { role: 'user', text }])
+    setQuestion('')
+    setLoading(true)
     try {
-      const data = await submitQuery(text)
-      setResult(data)
+      const data = await submitQuery(text, getConversationId())
+      setMessages(m => [...m, {
+        role: 'bot',
+        type: data.response_type || 'answer',
+        answer: data.answer || data.clarification_question || '',
+        clarification_question: data.clarification_question,
+        intent: data.intent,
+        sources: data.sources,
+      }])
     } catch (err) {
       setError(err.message)
+      setMessages(m => m.slice(0, -1))  // 回滚失败的用户消息，便于重试
+      setQuestion(text)
     } finally {
       setLoading(false)
     }
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!question.trim()) return
-    handleAsk(question)
-  }
+  useEffect(() => { const q = searchParams.get('q'); if (q) ask(q) }, [])
 
-  const type = result?.response_type || 'answer'
+  const handleSubmit = (e) => { e.preventDefault(); ask(question) }
 
   return (
     <div>
-      <h1 className="page-title">提问</h1>
-      <form onSubmit={handleSubmit}>
+      <h1 className="page-title">智能提问</h1>
+      <p className="page-subtitle">基于多跳检索与证据校验的企业知识问答，支持多轮上下文理解</p>
+
+      {error && <ErrorMessage message={error} onRetry={() => ask(question)} />}
+
+      <div className="glass-panel" style={{ padding: 18, minHeight: 300, marginBottom: 16 }}>
+        {messages.length === 0 && !loading && (
+          <div className="empty-state">
+            <div className="icon">💬</div>
+            <p>开始你的第一次提问吧</p>
+            <div className="row" style={{ justifyContent: 'center', marginTop: 16 }}>
+              {['胖东来的员工休假制度是怎样的？', '新员工培训计划包含哪些内容？', '温暖基金的申请标准是什么？'].map(s => (
+                <span key={s} className="tag" style={{ cursor: 'pointer' }} onClick={() => ask(s)}>{s}</span>
+              ))}
+            </div>
+          </div>
+        )}
+        {messages.map((m, i) => m.role === 'user'
+          ? <div key={i} className="chat-row"><div className="chat-bubble chat-user">{m.text}</div></div>
+          : <BotMessage key={i} msg={m} onFillQuestion={setQuestion} />)}
+        {loading && (
+          <div className="chat-row">
+            <div className="chat-bubble chat-bot typing"><span></span><span></span><span></span></div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <form onSubmit={handleSubmit} className="glass-panel" style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'flex-end' }}>
         <textarea
-          rows={3}
-          placeholder="输入你的问题，例如：胖东来的员工休假制度是怎样的？"
+          rows={2}
+          placeholder="输入你的问题，Enter 发送 / Shift+Enter 换行"
           value={question}
           onChange={e => setQuestion(e.target.value)}
-          style={{marginBottom:12}}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(question) } }}
+          style={{ flex: 1 }}
         />
-        <button className="btn btn-primary" type="submit" disabled={loading}>
-          {loading ? '查询中...' : '发送'}
+        <button className="btn btn-primary" type="submit" disabled={loading || !question.trim()}>
+          {loading ? '思考中' : '发送 ↑'}
         </button>
       </form>
-      {error && <ErrorMessage message={error} onRetry={() => handleSubmit({ preventDefault: () => {} })} />}
-      {loading && <Loading />}
-      {result && type === 'clarification' && (
-        <div className="card" style={{marginTop:20,border:'1px solid #f59e0b',background:'#fffbeb'}}>
-          <IntentTags intent={result.intent} />
-          <h3>需要补充信息</h3>
-          <div className="answer-text">{result.clarification_question || result.answer}</div>
-          <button
-            className="btn"
-            style={{marginTop:10}}
-            onClick={() => setQuestion(result.clarification_question || result.answer || '')}
-          >
-            补充后重新提问
-          </button>
-        </div>
-      )}
-      {result && type === 'refusal' && (
-        <div className="card" style={{marginTop:20,border:'1px solid #ef4444',background:'#fef2f2'}}>
-          <h3>无法回答</h3>
-          <div className="answer-text" style={{color:'#b91c1c'}}>{result.answer}</div>
-        </div>
-      )}
-      {result && type === 'permission_denied' && (
-        <div className="card" style={{marginTop:20,border:'1px solid #f59e0b',background:'#fffbeb'}}>
-          <h3>🔒 权限不足</h3>
-          <div className="answer-text" style={{color:'#b45309'}}>{result.answer}</div>
-        </div>
-      )}
-      {result && type === 'answer' && (
-        <div className="card" style={{marginTop:20}}>
-          <IntentTags intent={result.intent} />
-          <h3>回答</h3>
-          <div className="answer-text">{result.answer}</div>
-          {(result.sources || []).length > 0 && (
-            <details>
-              <summary>参考来源 ({result.sources.length})</summary>
-              {result.sources.map((s, i) => (
-                <div key={i} style={{marginTop:8,padding:8,background:'#f5f5f5',borderRadius:4}}>
-                  <small style={{color:'#666'}}>{s.document_name}</small>
-                  <p style={{fontSize:'0.9rem'}}>{s.content_snippet}</p>
-                </div>
-              ))}
-            </details>
-          )}
-        </div>
-      )}
     </div>
   )
 }

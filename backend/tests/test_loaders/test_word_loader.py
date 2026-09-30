@@ -65,13 +65,18 @@ class TestWordLoader:
         doc = Document()
         doc.save(str(docx_file))
 
-        import importlib
-        real_import = __builtins__.__import__
+        import builtins
+        import sys
+
+        real_import = builtins.__import__
+
         def mock_import(name, *args, **kwargs):
             if name == "docx2txt":
                 raise ImportError("mocked")
             return real_import(name, *args, **kwargs)
-        monkeypatch.setattr(__builtins__, "__import__", mock_import)
+
+        monkeypatch.delitem(sys.modules, "docx2txt", raising=False)
+        monkeypatch.setattr("builtins.__import__", mock_import)
 
         loader = WordLoader(str(docx_file))
         with pytest.raises(ImportError):

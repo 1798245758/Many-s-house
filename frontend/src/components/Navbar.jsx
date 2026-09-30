@@ -1,31 +1,50 @@
-import { Link } from 'react-router-dom'
+import { NavLink, Link } from 'react-router-dom'
 import { getRole, clearRole } from '../api'
+import { useTheme } from '../contexts/ThemeContext'
+
+const LINKS = [
+  { to: '/', label: '首页', end: true },
+  { to: '/chat', label: '提问' },
+  { to: '/documents', label: '文档' },
+  { to: '/history', label: '历史' },
+  { to: '/memory', label: '记忆' },
+  { to: '/profile', label: '个人' },
+  { to: '/about', label: '关于' },
+]
 
 export default function Navbar() {
   const role = getRole()
-  const switchRole = () => {
-    clearRole()
-    window.location.reload()
-  }
+  const { theme, toggleTheme } = useTheme()
+  const switchRole = () => { clearRole(); window.location.reload() }
+
   return (
     <nav className="navbar">
-      <Link to="/">首页</Link>
-      <Link to="/chat">提问</Link>
-      <Link to="/documents">文档</Link>
-      <Link to="/history">历史</Link>
-      <Link to="/profile">个人</Link>
-      <Link to="/about">关于</Link>
-      <span
-        onClick={switchRole}
-        title="点击切换角色"
-        style={{
-          marginLeft: 'auto', cursor: 'pointer', fontSize: '0.85rem',
-          padding: '2px 10px', borderRadius: 12,
-          background: role === 'manager' ? '#e6f0ff' : '#f0f0f0',
-          color: role === 'manager' ? '#1a56db' : '#333',
-        }}
-      >
-        {role === 'manager' ? '💼 经理' : '👤 员工'}（点击切换）
+      <Link to="/" className="brand">
+        <span className="logo"><span>◆</span></span>
+        <span className="brand-text">企业问答助手</span>
+      </Link>
+
+      {LINKS.map(l => (
+        <NavLink key={l.to} to={l.to} end={l.end}
+          className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+          {l.label}
+        </NavLink>
+      ))}
+      {role === 'manager' && (
+        <NavLink to="/diagnosis" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+          诊断
+        </NavLink>
+      )}
+
+      <span className="nav-spacer" />
+
+      <button className="theme-toggle" onClick={toggleTheme} title="切换主题"
+        aria-label="切换主题">
+        {theme === 'dark' ? '☀️' : '🌙'}
+      </button>
+      <span className={`role-chip${role === 'manager' ? ' manager' : ''}`}
+        onClick={switchRole} title="点击切换角色">
+        {role === 'manager' ? '💼 经理' : '👤 员工'}
       </span>
     </nav>
   )

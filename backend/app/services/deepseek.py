@@ -48,10 +48,41 @@ class DeepSeekClient:
         resp.raise_for_status()
         return resp.json()["data"][0]["embedding"]
 
+    def ask(self, system_prompt: str, user_message: str, temperature: float = 0.3) -> str:
+        """通用对话：自定义系统提示（诊断等非 RAG 场景复用）"""
+        resp = self.client.post(
+            f"{self.BASE_URL}/v1/chat/completions",
+            headers=self._headers(),
+            json={
+                "model": self.EMBEDDING_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message},
+                ],
+                "temperature": temperature,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
+    def messages(self, messages: list, temperature: float = 0.3) -> str:
+        """多轮对话：直接传入已组装好的 messages 列表（诊断会话上下文管理用）"""
+        resp = self.client.post(
+            f"{self.BASE_URL}/v1/chat/completions",
+            headers=self._headers(),
+            json={
+                "model": self.EMBEDDING_MODEL,
+                "messages": messages,
+                "temperature": temperature,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+
     def chat(self, context: str, question: str) -> str:
         system_prompt = (
-            "你是一个知识库助手，仅基于提供的上下文回答问题。"
-            "如果上下文中没有相关信息，请诚实回答'根据现有资料无法回答此问题'。"
+            "你是'企业问答助手'，一个企业知识库助手，仅基于提供的上下文回答问题。"
+            "如果上下文中没有相关信息，请诚实回答'根据现有资料无法回答此问题'，不要编造信息。"
         )
         user_message = f"上下文:\n{context}\n\n问题: {question}"
         resp = self.client.post(

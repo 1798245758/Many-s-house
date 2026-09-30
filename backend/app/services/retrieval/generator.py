@@ -31,6 +31,7 @@ def generate_answer(db: Session, query_text: str, client: DeepSeekClient,
             chunk_id=c.id,
             content_snippet=c.content[:200],
             document_name=c.document.filename if c.document else "未知",
+            page=c.page,
         )
         for c in chunks[:3]
     ]

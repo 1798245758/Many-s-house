@@ -50,6 +50,16 @@
 | 文档解析 | pdfplumber、pypdf、unstructured、docx2txt、python-pptx、openpyxl、pytesseract (OCR) |
 | 前端 | React 18、Vite、React Router |
 
+## 架构设计
+
+**离线链路：文件向量化入库**（异步任务 + CheckPoint 断点续跑 + 状态机）
+
+![离线链路流程图](docs/images/arch-offline-pipeline.png)
+
+**在线链路：LangGraph 状态图流转**（意图门禁 → 改写 → 多跳检索 → 证据校验 → 生成）
+
+![LangGraph状态图流转](docs/images/arch-langgraph-state.png)
+
 ## 项目结构
 
 ```
